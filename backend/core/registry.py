@@ -221,6 +221,16 @@ _OVH_ANON_TOKEN = (
     "Jty_eO4oWqLm4Lx_LfbpRW5WESXYXtT2humbBq2Pal8"
 )
 
+# NVIDIA build.nvidia.com catalogue search API. The browser "Free Endpoint"
+# filter maps to ``nimType:nim_type_preview``; the public NGC catalogue search
+# endpoint exposes exactly that filter (no auth needed for listing). We use it
+# as the source of truth for WHICH NVIDIA models are free, plus their
+# capabilities (reasoning / vision / code), instead of the bare /v1/models list
+# (which mixes free + paid + retired models and carries no capability info).
+_NVIDIA_CATALOG_URL = (
+    "https://api.ngc.nvidia.com/v2/search/catalog/resources/ENDPOINT"
+)
+
 
 def _resolve_limits(
     provider_id: str, model_id: str, header_limits: "ModelRateLimits | None"
@@ -282,6 +292,18 @@ _VISION_MODEL_RE = re.compile(
     r"gemini|pixtral|llava|internvl|moondream|"
     r"llama.*(vision|3\.2|4)|qwen.*vl|"
     r"grok-?[234]|phi-?4-multimodal|multimodal",
+    re.I,
+)
+
+# Known reasoning/"thinking" model families. Used as a fallback when a model
+# hasn't been tagged with the explicit "reasoning" capability during discovery
+# (e.g. providers whose /models endpoint exposes no capability metadata).
+_REASONING_MODEL_RE = re.compile(
+    r"gpt-?5|(^|[/_-])o[1345]([/_.-]|$)|claude.*(opus|sonnet)|"
+    r"deepseek.*(r1|reason|v[45])|\bqwq\b|qwen-?3|glm-?[45]|"
+    r"grok-?[345]|gemini.*(think|2\.[05]|3)|magistral|minimax-?m[23]|"
+    r"kimi-?k2|nemotron|gpt-?oss|seed-oss|step-?3|"
+    r"reason|reasoner|thinking",
     re.I,
 )
 
@@ -574,6 +596,156 @@ class ModelRegistry:
         logger.info("Discovered %d model(s) from ovh.", len(discovered))
         return discovered
 
+    async def _discover_nvidia(
+        self, provider: "ProviderConfig", key: str | None
+    ) -> list[str] | None:
+        """Discover ONLY NVIDIA's free-endpoint models, with capabilities.
+
+        Source of truth is NVIDIA's own catalogue (the ``Free Endpoint`` filter
+        on build.nvidia.com == ``nimType:nim_type_preview``), fetched from the
+        public NGC catalogue search API. That gives the exact free model set
+        plus each model's capability labels (reasoning / vision / code). We then
+        intersect it with the live ``/v1/models`` ids (so only models this key
+        can actually call survive) and register the free chat + embedding ones.
+
+        Returns the list of discovered ids, or ``None`` to signal the caller to
+        fall back to the generic ``/models`` discovery (e.g. catalogue down).
+        """
+        import json as _json
+        import urllib.parse as _urlparse
+        import httpx
+
+        def _norm(s: str) -> str:
+            return re.sub(r"[._/\-]", "", (s or "").lower())
+
+        # 1) Fetch the free-endpoint catalogue (free list + capability labels).
+        free: dict[str, tuple[str, bool, set[str]]] = {}
+        q = {
+            "query": "",
+            "page": 0,
+            "pageSize": 200,
+            "filters": [{"field": "nimType", "value": "nim_type_preview"}],
+        }
+        url = _NVIDIA_CATALOG_URL + "?q=" + _urlparse.quote(_json.dumps(q))
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.get(
+                    url,
+                    headers={
+                        "accept": "application/json",
+                        "resource-type": "ENDPOINT",
+                        "user-agent": "Mozilla/5.0",
+                    },
+                )
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception as exc:
+            logger.warning(
+                "NVIDIA catalogue fetch failed (%s); using generic discovery.",
+                exc,
+            )
+            return None
+
+        for group in data.get("results", []) or []:
+            for res in group.get("resources", []) or []:
+                name = res.get("name")
+                if not name:
+                    continue
+                publisher = None
+                general: list[str] = []
+                for lab in res.get("labels", []) or []:
+                    k = lab.get("key")
+                    if k == "publisher":
+                        vals = lab.get("values") or lab.get("unresolvedValues") or []
+                        publisher = vals[0] if vals else None
+                    elif k == "general":
+                        general = [str(x).lower() for x in (lab.get("values") or [])]
+                model_id = f"{publisher}/{name}" if publisher else name
+                is_chat = "chat" in general
+                caps: set[str] = set()
+                if is_chat:
+                    caps.add("chat")
+                if any(("reason" in g or "thinking" in g) for g in general):
+                    caps.add("reasoning")
+                if any(
+                    k in g
+                    for g in general
+                    for k in (
+                        "image-to-text", "image to text", "visual", "vision",
+                        "vlm", "multimodal", "ocr", "video",
+                    )
+                ):
+                    caps.add("vision")
+                if any("cod" in g for g in general):  # code / coding
+                    caps.add("code")
+                free[_norm(model_id)] = (model_id, is_chat, caps)
+
+        if not free:
+            return None
+
+        # 2) Fetch the live /v1/models list (the ids this key can actually call).
+        try:
+            client = await self._http.get_client(provider.id)
+            resp = await client.get("/models", headers=_auth_headers(key))
+            resp.raise_for_status()
+            payload = resp.json()
+            items = (
+                payload.get("data")
+                if isinstance(payload, dict)
+                else payload
+            ) or []
+        except Exception as exc:
+            logger.warning("NVIDIA /v1/models failed (%s).", exc)
+            return None
+
+        # 3) Register the intersection: free chat models (+ free embeddings).
+        discovered: list[str] = []
+        base_limits = ModelRateLimits(requests_per_minute=40)
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            rid = item.get("id") or item.get("name")
+            if not rid:
+                continue
+            entry = free.get(_norm(rid))
+            if entry is None:
+                continue  # not a free-endpoint model -> drop (paid/retired).
+            _mid, is_chat, caps = entry
+
+            if _is_embedding_model(rid):
+                capabilities = ["embed"]
+            elif is_chat and _is_chat_model(rid):
+                merged = caps | set(_infer_capabilities(rid))
+                order = ["chat", "vision", "code", "embed", "reasoning"]
+                capabilities = [c for c in order if c in merged]
+            else:
+                # Free but non-chat (TTS / AV / safety / detectors) — skip.
+                continue
+
+            cw = item.get("context_window") or item.get("context_length")
+            model = RegisteredModel(
+                model_id=rid,
+                provider_id=provider.id,
+                canonical_aliases=self._aliases_for_model(rid),
+                context_window=cw,
+                capabilities=capabilities,
+                rate_limits=base_limits.model_copy(),
+                status="active",
+                last_verified=datetime.now(timezone.utc),
+                avg_latency_ms=None,
+            )
+            async with self._lock:
+                self._models[(provider.id, rid)] = model
+                discovered.append(rid)
+            await self._persist(model)
+
+        logger.info(
+            "Discovered %d free NVIDIA model(s) from catalogue (of %d free, "
+            "%d listed).",
+            len(discovered), len(free), len(items),
+        )
+        return discovered
+
     async def _discover_provider(self, provider: "ProviderConfig") -> list[str]:
         """Poll one provider's /models endpoint. Returns discovered ids."""
         # Custom providers carry a USER-CURATED model list (registered via
@@ -603,6 +775,16 @@ class ModelRegistry:
                     "Skipping discovery for %s: no usable API keys.", provider.id
                 )
                 return []
+
+        # NVIDIA: register ONLY the free-endpoint models from NVIDIA's own
+        # catalogue (the build.nvidia.com "Free Endpoint" filter), with the
+        # reasoning/vision capabilities it declares. Falls back to the generic
+        # /models discovery below if the catalogue is unreachable.
+        if provider.id == "nvidia":
+            nv = await self._discover_nvidia(provider, key)
+            if nv is not None:
+                return nv
+
         try:
             client = await self._http.get_client(provider.id)
             started = time.perf_counter()
@@ -969,6 +1151,20 @@ class ModelRegistry:
         if m and "vision" in (m.capabilities or []):
             return True
         return bool(_VISION_MODEL_RE.search((model_id or "").lower()))
+
+    def supports_reasoning(self, provider_id: str, model_id: str) -> bool:
+        """True if this model performs extended reasoning/"thinking".
+
+        Prefers the discovered "reasoning" capability tag — authoritative when
+        sourced from the provider's own catalogue (e.g. NVIDIA's Free-Endpoint
+        labels mark Kimi-K2, Nemotron, GPT-OSS, GLM, etc. as reasoning even
+        though their ids don't contain the word). Falls back to a family
+        pattern for providers without capability metadata.
+        """
+        m = self._models.get((provider_id, model_id))
+        if m and "reasoning" in (m.capabilities or []):
+            return True
+        return bool(_REASONING_MODEL_RE.search((model_id or "").lower()))
 
     def routable_models(self) -> list[tuple[str, str]]:
         """All chat-routable (provider_id, model_id) pairs.

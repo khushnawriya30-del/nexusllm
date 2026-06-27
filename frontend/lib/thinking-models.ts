@@ -46,6 +46,11 @@ const THINKING_PATTERNS: RegExp[] = [
   /gemini.*(think|2\.[05]|3)/i, // Gemini thinking / 2.x / 3
   /magistral/i, // Mistral Magistral
   /minimax-?m[23]/i, // MiniMax M2 / M3 reasoning
+  /kimi-?k2/i, // Moonshot Kimi-K2 (thinking)
+  /nemotron/i, // NVIDIA Nemotron reasoning family
+  /gpt-?oss/i, // OpenAI gpt-oss (reasoning_effort)
+  /seed-oss/i, // ByteDance Seed-OSS (thinking budget)
+  /step-?3/i, // StepFun Step-3.x reasoning
   /(reason|reasoner|thinking)/i, // explicit reasoning markers
 ];
 

@@ -695,11 +695,12 @@ class RoutingEngine:
         r"gpt-?5|(^|[/_-])o[1345]([/_.-]|$)|claude.*(opus|sonnet)|"
         r"deepseek.*(r1|reason|v[45])|\bqwq\b|qwen-?3|glm-?[45]|"
         r"grok-?[345]|gemini.*(think|2\.[05]|3)|magistral|minimax-?m[23]|"
+        r"kimi-?k2|nemotron|gpt-?oss|seed-oss|step-?3|"
         r"reason|reasoner|thinking",
         re.I,
     )
 
-    def _apply_thinking(self, payload: dict) -> dict:
+    def _apply_thinking(self, provider_id: str, payload: dict) -> dict:
         """Map abstract thinking flags to provider-specific reasoning params.
 
         The frontend sends ``thinking_enabled`` + ``thinking_intensity``; we
@@ -719,7 +720,16 @@ class RoutingEngine:
             return payload
         model = str(payload.get("model") or "").lower()
         # Non-reasoning models answer normally — never inject thinking params.
-        if not self._REASONING_RE.search(model):
+        # Prefer the registry's capability tag (authoritative, e.g. NVIDIA's
+        # catalogue marks Kimi-K2/Nemotron/GPT-OSS as reasoning); fall back to
+        # the family pattern when no registry/capability info is available.
+        if self._registry is not None:
+            is_reasoning = self._registry.supports_reasoning(
+                provider_id, payload.get("model") or ""
+            )
+        else:
+            is_reasoning = bool(self._REASONING_RE.search(model))
+        if not is_reasoning:
             return payload
         lvl = intensity if intensity in self._THINK_BUDGET else "medium"
 
@@ -772,7 +782,7 @@ class RoutingEngine:
 
     def _adapt_payload(self, provider_id: str, payload: dict) -> dict:
         """Clamp/adjust request params to a provider's accepted ranges."""
-        payload = self._apply_thinking(payload)
+        payload = self._apply_thinking(provider_id, payload)
         payload = self._flatten_images_if_no_vision(provider_id, payload)
         limits = self._PARAM_LIMITS.get(provider_id)
         if not limits:
