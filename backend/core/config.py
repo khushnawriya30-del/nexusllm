@@ -17,10 +17,13 @@ time rather than at request time.
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 from pathlib import Path
 from typing import Any, Literal
+
+logger = logging.getLogger(__name__)
 
 import yaml
 from pydantic import (
@@ -352,6 +355,19 @@ def load_config(path: str | Path = "config.yaml") -> NexusLLMConfig:
     app_section = expanded.get("nexusllm", {})
     if not isinstance(app_section, dict):
         raise ConfigError("'nexusllm' section must be a mapping")
+
+    # Admin key fallback: when NEXUS_ADMIN_KEY is unset (e.g. a zero-config
+    # deploy), ${NEXUS_ADMIN_KEY} expands to "" which disables all /admin/*
+    # endpoints. Default to the same dev key the frontend assumes so the
+    # dashboard works out of the box. For a public deployment, set
+    # NEXUS_ADMIN_KEY to a secret value and enter the SAME value in the
+    # frontend Admin tab.
+    if not str(app_section.get("admin_api_key", "")).strip():
+        app_section["admin_api_key"] = "dev-admin-key"
+        logger.warning(
+            "NEXUS_ADMIN_KEY not set; defaulting admin key to 'dev-admin-key'. "
+            "Set NEXUS_ADMIN_KEY to a secret value for public deployments."
+        )
 
     payload = {
         "app": app_section,

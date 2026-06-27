@@ -50,9 +50,9 @@ services:
     envVars:
       # Backend URL for the Next.js server-side /api proxy.
       - key: NEXT_PUBLIC_API_URL
-        value: https://nexusllm-backend.onrender.com
+        value: https://nexusllm-3x5q.onrender.com
       # Backend URL the BROWSER hits directly for streaming chat (must be public).
       - key: NEXT_PUBLIC_BACKEND_URL
-        value: https://nexusllm-backend.onrender.com
+        value: https://nexusllm-3x5q.onrender.com
       - key: NODE_VERSION
         value: "20"
