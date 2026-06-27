@@ -196,11 +196,21 @@ async function adminMutate<T = unknown>(
  * (e.g. https://nexusllm-backend.onrender.com) so the browser streams from it
  * directly. Locally it falls back to the dev backend on :8080.
  */
+/** Deployed backend (Render). Used when no NEXT_PUBLIC_BACKEND_URL is set and
+ *  the app is running on a non-localhost host. Override via env if you redeploy
+ *  the backend under a different URL. */
+const PROD_BACKEND_URL = "https://nexusllm-3x5q.onrender.com";
+
 function browserBackendBase(): string {
   const env = process.env.NEXT_PUBLIC_BACKEND_URL;
   if (env && /^https?:\/\//.test(env)) return env.replace(/\/$/, "");
   if (typeof window !== "undefined") {
-    return `${window.location.protocol}//${window.location.hostname}:8080`;
+    const { protocol, hostname } = window.location;
+    if (hostname === "localhost" || hostname === "127.0.0.1") {
+      return `${protocol}//${hostname}:8080`;
+    }
+    // Deployed frontend → talk to the deployed backend directly (SSE streaming).
+    return PROD_BACKEND_URL;
   }
   return "http://localhost:8080";
 }

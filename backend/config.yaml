@@ -19,6 +19,7 @@ nexusllm:
   max_request_log_entries: 1000
   cors_allowed_origins:
     - "http://localhost:3000"
+    - "https://nexusllm-frontend.onrender.com"
     - "${FRONTEND_ORIGIN}"
   data_dir: "data"
 

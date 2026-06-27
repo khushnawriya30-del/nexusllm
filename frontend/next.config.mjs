@@ -4,7 +4,11 @@ const nextConfig = {
   output: "standalone",
   // Proxy /api/* to the backend so the browser talks to one origin in dev.
   async rewrites() {
-    const backend = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
+    const backend =
+      process.env.NEXT_PUBLIC_API_URL ||
+      (process.env.NODE_ENV === "production"
+        ? "https://nexusllm-3x5q.onrender.com"
+        : "http://localhost:8080");
     return [
       {
         source: "/api/:path*",
