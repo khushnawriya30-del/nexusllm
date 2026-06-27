@@ -29,11 +29,6 @@ interface ChatState {
   thinkingIntensity: ThinkingIntensity;
   setThinkingIntensity: (v: ThinkingIntensity) => void;
 
-  // Thinking capability settings
-  isThinkingEnabled: boolean;
-  thinkingIntensity: ThinkingIntensity;
-  setThinkingEnabled: (enabled: boolean) => void;
-  setThinkingIntensity: (intensity: ThinkingIntensity) => void;
 
   favorites: string[];
   toggleFavorite: (model: string) => void;
@@ -76,11 +71,6 @@ export const useChatStore = create<ChatState>()(
       thinkingIntensity: "medium",
       setThinkingIntensity: (v) => set({ thinkingIntensity: v }),
 
-      // Thinking capability state
-      isThinkingEnabled: false,
-      thinkingIntensity: "medium",
-      setThinkingEnabled: (enabled) => set({ isThinkingEnabled: enabled }),
-      setThinkingIntensity: (intensity) => set({ thinkingIntensity: intensity }),
 
       favorites: [],
       toggleFavorite: (model) =>
