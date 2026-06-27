@@ -135,15 +135,34 @@ async def _unsync_custom(request: Request, cp_id: str) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _public_base_url(request: Request) -> str:
+    """Build the PUBLIC OpenAI base URL the client should use.
+
+    Derived from the incoming request so it reflects the real host the app is
+    reachable at — localhost in dev, the Render URL once deployed, or a custom
+    domain if self-hosted. Respects reverse-proxy headers (X-Forwarded-*),
+    which Render and most PaaS platforms set. Falls back to the configured
+    host/port only when no Host header is present.
+    """
+    forwarded_proto = request.headers.get("x-forwarded-proto")
+    forwarded_host = request.headers.get("x-forwarded-host")
+    host = forwarded_host or request.headers.get("host")
+    if host:
+        scheme = (forwarded_proto or request.url.scheme or "http").split(",")[0].strip()
+        host = host.split(",")[0].strip()
+        return f"{scheme}://{host}/v1"
+    cfg = request.app.state.config
+    h = cfg.app.host if cfg.app.host not in ("0.0.0.0", "") else "localhost"
+    return f"http://{h}:{cfg.app.port}/v1"
+
+
 @router.get("/unified-key")
 async def unified_key(request: Request) -> dict:
     store = request.app.state.keystore
-    cfg = request.app.state.config
     key = await store.get_unified_key()
-    host = cfg.app.host if cfg.app.host not in ("0.0.0.0", "") else "localhost"
     return {
         "key": key,
-        "base_url": f"http://{host}:{cfg.app.port}/v1",
+        "base_url": _public_base_url(request),
         "endpoints": {
             "chat": "/v1/chat/completions",
             "completions": "/v1/completions",
