@@ -1,0 +1,59 @@
+# =============================================================================
+# Render Blueprint for NexusLLM (backend API + Next.js frontend)
+# -----------------------------------------------------------------------------
+# Deploy: push this repo to GitHub, then in Render → "New +" → "Blueprint" and
+# point it at the repo. Render reads this file and creates both services.
+#
+# IMPORTANT notes:
+#  * Service URLs below assume the names `nexusllm-backend` / `nexusllm-frontend`
+#    are free. If Render appends a suffix (name taken), update NEXT_PUBLIC_API_URL,
+#    NEXT_PUBLIC_BACKEND_URL and FRONTEND_ORIGIN to the real URLs, then redeploy.
+#  * Free plan has NO persistent disk: the backend's SQLite (provider keys you
+#    add in the UI) resets when the service restarts/cold-starts. For permanent
+#    keys, upgrade the backend to a paid instance and add a `disk:` block
+#    (mountPath: /app/data), or set provider keys as env vars below.
+#  * After first deploy: open the frontend → Keys page → add your provider keys.
+# =============================================================================
+
+services:
+  # ---- Backend: FastAPI gateway (Docker) ------------------------------------
+  - type: web
+    name: nexusllm-backend
+    runtime: docker
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      # Admin key guarding /admin/* endpoints. Set the SAME value in the
+      # frontend (Admin tab) so the dashboard/Keys pages can authenticate.
+      - key: NEXUS_ADMIN_KEY
+        sync: false
+      # Public URL of the frontend, for CORS (update if the name differs).
+      - key: FRONTEND_ORIGIN
+        value: https://nexusllm-frontend.onrender.com
+      # Optional: built-in provider keys (free to leave blank and add via UI).
+      - key: GROQ_API_KEY
+        sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: OPENCODE_ZEN_KEY
+        sync: false
+
+  # ---- Frontend: Next.js app -------------------------------------------------
+  - type: web
+    name: nexusllm-frontend
+    runtime: node
+    rootDir: frontend
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npx next start -p $PORT
+    envVars:
+      # Backend URL for the Next.js server-side /api proxy.
+      - key: NEXT_PUBLIC_API_URL
+        value: https://nexusllm-backend.onrender.com
+      # Backend URL the BROWSER hits directly for streaming chat (must be public).
+      - key: NEXT_PUBLIC_BACKEND_URL
+        value: https://nexusllm-backend.onrender.com
+      - key: NODE_VERSION
+        value: "20"

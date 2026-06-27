@@ -1,0 +1,279 @@
+# =============================================================================
+# NexusLLM Configuration
+# -----------------------------------------------------------------------------
+# All secrets are referenced via ${ENV_VAR} and resolved at load time from the
+# process environment (and a .env file if present). See .env.example.
+#
+# Server-level settings live under `nexusllm`. Routing, aliases, and providers
+# live at the top level.
+# =============================================================================
+
+nexusllm:
+  host: "0.0.0.0"
+  port: 8080
+  admin_api_key: "${NEXUS_ADMIN_KEY}"
+  proxy_api_key: "${NEXUS_PROXY_KEY}"      # optional: leave unset to disable proxy auth
+  log_level: "INFO"
+  model_refresh_interval_minutes: 15
+  enable_request_logging: true
+  max_request_log_entries: 1000
+  cors_allowed_origins:
+    - "http://localhost:3000"
+    - "${FRONTEND_ORIGIN}"
+  data_dir: "data"
+
+routing:
+  max_fallback_attempts: 6
+  per_attempt_timeout_seconds: 30
+  retry_base_delay_seconds: 0.5
+  retry_max_delay_seconds: 20.0
+  retry_jitter_percent: 25
+  circuit_breaker_failure_threshold: 4
+  circuit_breaker_open_duration_seconds: 90
+  circuit_breaker_failure_window_seconds: 60
+  circuit_breaker_success_threshold_half_open: 1
+  circuit_breaker_max_open_duration_seconds: 900
+
+# -----------------------------------------------------------------------------
+# Model alias groups: one stable name -> ordered list of real provider models.
+# The router tries each concrete model in order until one succeeds.
+# -----------------------------------------------------------------------------
+model_aliases:
+  - alias: "llama-3.1-70b"
+    description: "Best available 70B Llama 3.1"
+    models:
+      - "meta/llama-3.1-70b-instruct"                     # nvidia
+      - "llama-3.1-70b-versatile"                         # groq
+
+  - alias: "llama-3.3-70b"
+    description: "Latest 70B Llama 3.3"
+    models:
+      - "llama-3.3-70b-versatile"                         # groq
+      - "meta/llama-3.3-70b-instruct"                     # nvidia
+      - "meta-llama/llama-3.3-70b-instruct:free"          # openrouter
+
+  - alias: "fast-small"
+    description: "Fastest small model available"
+    models:
+      - "llama-3.1-8b-instant"                            # groq
+      - "llama-3.1-8b"                                    # cerebras
+      - "meta/llama-3.1-8b-instruct"                      # nvidia
+      - "meta-llama/llama-3.2-3b-instruct:free"           # openrouter
+
+  - alias: "code"
+    description: "Best available coding model"
+    models:
+      - "qwen/qwen3-coder:free"                           # openrouter
+      - "qwen-2.5-coder-32b"                              # cerebras
+
+  - alias: "vision"
+    description: "Multimodal vision-capable model"
+    models:
+      - "gemini-2.5-flash"                                # google
+      - "meta/llama-3.2-90b-vision-instruct"              # nvidia
+
+default_fallback_model: "fast-small"
+
+# -----------------------------------------------------------------------------
+# Providers. Priority is unique among enabled providers (lower = preferred).
+#
+# auth flags:
+#   requires_key: false      -> works with no key ("No API Key Required")
+#   key_free: true           -> needs a key, but it's free to get ("Free key")
+#   (neither)                -> standard API key required
+# -----------------------------------------------------------------------------
+providers:
+  # --- Fully free (API key required) -----------------------------------------
+  - id: "google"
+    name: "Google AI Studio"
+    base_url: "https://generativelanguage.googleapis.com/v1beta/openai"
+    api_keys: ["${GOOGLE_AI_KEY}"]
+    priority: 1
+    enabled: true
+    category: "free"
+    tags: ["free", "vision", "reasoning"]
+    rate_limits:
+      tokens_per_minute: 250000
+      requests_per_day: 20
+
+  - id: "groq"
+    name: "Groq Cloud"
+    base_url: "https://api.groq.com/openai/v1"
+    api_keys: ["${GROQ_KEY_1}", "${GROQ_KEY_2}"]
+    priority: 2
+    enabled: true
+    category: "free"
+    tags: ["fast", "free"]
+    rate_limits:
+      requests_per_minute: 30
+      tokens_per_minute: 60000
+
+  - id: "cerebras"
+    name: "Cerebras"
+    base_url: "https://api.cerebras.ai/v1"
+    api_keys: ["${CEREBRAS_KEY}"]
+    priority: 3
+    enabled: true
+    category: "free"
+    tags: ["fast", "free"]
+    rate_limits:
+      requests_per_minute: 30
+      tokens_per_minute: 60000
+      requests_per_day: 14400
+      tokens_per_day: 1000000
+
+  - id: "nvidia"
+    name: "NVIDIA NIM"
+    base_url: "https://integrate.api.nvidia.com/v1"
+    api_keys: ["${NVIDIA_KEY}"]
+    priority: 4
+    enabled: true
+    category: "free"
+    tags: ["free", "large-models"]
+    rate_limits:
+      requests_per_minute: 40
+
+  - id: "mistral"
+    name: "Mistral La Plateforme"
+    base_url: "https://api.mistral.ai/v1"
+    api_keys: ["${MISTRAL_KEY}"]
+    priority: 5
+    enabled: true
+    category: "free"
+    tags: ["free"]
+    rate_limits:
+      requests_per_minute: 60
+      tokens_per_minute: 500000
+      tokens_per_month: 1000000000
+
+  - id: "openrouter"
+    name: "OpenRouter"
+    base_url: "https://openrouter.ai/api/v1"
+    api_keys: ["${OPENROUTER_KEY}"]
+    priority: 6
+    enabled: true
+    category: "free"
+    tags: ["free", "diverse"]
+    rate_limits:
+      requests_per_minute: 20
+      requests_per_day: 50
+
+  - id: "github"
+    name: "GitHub Models"
+    base_url: "https://models.inference.ai.azure.com"
+    api_keys: ["${GITHUB_MODELS_TOKEN}"]
+    priority: 7
+    enabled: true
+    category: "free"
+    tags: ["free"]
+    rate_limits:
+      requests_per_minute: 15
+
+  - id: "cohere"
+    name: "Cohere"
+    base_url: "https://api.cohere.com/v2"
+    api_keys: ["${COHERE_KEY}"]
+    priority: 8
+    enabled: true
+    category: "free"
+    tags: ["free"]
+    rate_limits:
+      requests_per_minute: 20
+
+  - id: "cloudflare"
+    name: "Cloudflare Workers AI"
+    base_url: "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/ai/v1"
+    api_keys: ["${CLOUDFLARE_API_KEY}"]
+    priority: 9
+    enabled: true
+    category: "free"
+    tags: ["free"]
+    rate_limits: {}
+
+  - id: "huggingface"
+    name: "Hugging Face Router"
+    base_url: "https://router.huggingface.co/v1"
+    api_keys: ["${HUGGINGFACE_KEY}"]
+    priority: 10
+    enabled: true
+    category: "free"
+    tags: ["free", "diverse"]
+    rate_limits: {}
+
+  - id: "zai"
+    name: "Z.AI (Zhipu GLM)"
+    base_url: "https://api.z.ai/api/paas/v4"
+    api_keys: ["${ZAI_KEY}"]
+    priority: 11
+    enabled: true
+    category: "free"
+    tags: ["free", "reasoning", "code"]
+    rate_limits: {}
+
+  - id: "ollama"
+    name: "Ollama Cloud"
+    base_url: "https://ollama.com/v1"
+    api_keys: ["${OLLAMA_KEY}"]
+    priority: 12
+    enabled: true
+    category: "free"
+    tags: ["free"]
+    rate_limits: {}
+
+  # --- Free key (needs a key, but it's free to obtain) -----------------------
+  - id: "opencode"
+    name: "OpenCode Zen"
+    base_url: "https://opencode.ai/zen/v1"
+    api_keys: ["${OPENCODE_ZEN_KEY}"]
+    key_free: true
+    priority: 13
+    enabled: true
+    category: "free"
+    tags: ["free", "code"]
+    rate_limits: {}
+
+  - id: "kilo"
+    name: "Kilo Gateway"
+    base_url: "https://api.kilo.ai/api/gateway"
+    api_keys: ["${KILO_KEY}"]
+    key_free: true
+    priority: 14
+    enabled: true
+    category: "free"
+    tags: ["free", "gateway"]
+    rate_limits: {}
+
+  # --- No API key required ---------------------------------------------------
+  - id: "ovh"
+    name: "OVHcloud AI Endpoints"
+    base_url: "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1"
+    api_keys: ["${OVH_AI_KEY}"]   # optional: free tier needs no key
+    requires_key: false
+    priority: 15
+    enabled: true
+    category: "free"
+    tags: ["free", "no-key"]
+    rate_limits:
+      requests_per_minute: 12
+
+  - id: "pollinations"
+    name: "Pollinations AI"
+    base_url: "https://text.pollinations.ai/openai/v1"
+    api_keys: []
+    requires_key: false
+    priority: 16
+    enabled: true
+    category: "free"
+    tags: ["free", "no-key"]
+    rate_limits: {}
+
+  - id: "llm7"
+    name: "LLM7"
+    base_url: "https://api.llm7.io/v1"
+    api_keys: ["${LLM7_KEY}"]   # free token from token.llm7.io unlocks all models
+    key_free: true
+    priority: 17
+    enabled: true
+    category: "free"
+    tags: ["free", "diverse"]
+    rate_limits: {}

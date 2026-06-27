@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c \"import middleware.logging as m; print\\('AccessLogMiddleware ok:', hasattr\\(m.AccessLogMiddleware, '__call__'\\)\\)\")",
+      "Bash(python -c \"import main; print\\('app loaded:', main.app.title\\)\")",
+      "Bash(cat)",
+      "Read(//tmp/**)",
+      "Bash(npm run *)"
+    ]
+  },
+  "enabledMcpjsonServers": [
+    "claude-flow",
+    "ruv-swarm",
+    "flow-nexus"
+  ]
+}
