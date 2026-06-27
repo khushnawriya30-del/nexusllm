@@ -4,7 +4,6 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { ChatMessage, ChatParams } from "@/lib/types";
 import type { ThinkingIntensity } from "@/lib/thinking-models";
-import type { ThinkingIntensity } from "@/lib/thinking-models";
 
 interface Conversation {
   id: string;
