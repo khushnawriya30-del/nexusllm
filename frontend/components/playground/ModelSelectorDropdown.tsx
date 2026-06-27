@@ -34,6 +34,7 @@ export function ModelSelectorDropdown() {
     const aliases: ModelListItem[] = [];
     const concrete: ModelListItem[] = [];
     for (const m of all) {
+      if (m.id === "auto" || m.id === "fusion") continue; // shown in Special group
       if ((m["x-nexusllm"].capabilities || []).includes("embed")) continue;
       if (m["x-nexusllm"].underlying_models?.length) aliases.push(m);
       else concrete.push(m);

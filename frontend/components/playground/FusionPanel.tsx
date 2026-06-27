@@ -3,139 +3,109 @@
 import { useState } from "react";
 import type { FusionModelState, FusionState } from "@/lib/types";
 
+function label(m: { provider?: string; model: string }): string {
+  return m.provider ? `${m.provider}/${m.model}` : m.model;
+}
+
 /**
- * Collapsible "Model Responses" accordion shown above a Fusion answer.
- *
- * Fully dynamic: the header reflects the live count of panel models and their
- * status. Each model has its OWN expand/collapse arrow so you can open just the
- * one you want without scrolling through every model's thinking.
+ * Clean "model responses" disclosure for a Fusion answer (rendered BELOW the
+ * synthesized answer). While the panel runs it auto-expands and streams each
+ * model's reply live; once the judge finishes it collapses to a single
+ * "N model responses" toggle, with a subtle Panel · Judge · time meta line.
  */
 export function FusionPanel({ fusion }: { fusion: FusionState }) {
-  const [open, setOpen] = useState(true);
-
   const total = fusion.models.length;
-  const answered = fusion.models.filter((m) => m.status === "done").length;
+  const done = fusion.models.filter((m) => m.status === "done").length;
   const thinking = fusion.models.filter((m) => m.status === "thinking").length;
-  const failed = fusion.models.filter((m) => m.status === "error").length;
 
-  const statusBits: string[] = [];
-  if (thinking > 0) statusBits.push(`${thinking} thinking…`);
-  if (answered > 0) statusBits.push(`${answered} answered`);
-  if (failed > 0) statusBits.push(`${failed} failed`);
-  const statusLine = statusBits.join("  ·  ");
+  // Active while any model is still thinking or the judge hasn't resolved yet.
+  const active = thinking > 0 || fusion.judging || !fusion.judgeModel;
+  const [manual, setManual] = useState<boolean | null>(null);
+  const open = manual !== null ? manual : active;
+
+  const contributors = fusion.models.filter((m) => m.status === "done");
 
   return (
-    <div className="mb-4 overflow-hidden rounded-2xl border border-white/[0.08] bg-bg-secondary/40">
+    <div className="mt-3 text-[13px]">
+      {/* Meta line (Panel · Judge · time) — appears once the judge resolves. */}
+      {fusion.judgeModel && (
+        <p className="mb-1 leading-relaxed text-txt-tertiary">
+          <span className="font-medium text-txt-secondary">Panel:</span>{" "}
+          <span className="font-mono text-[11px]">
+            {contributors.map((m) => label(m)).join(", ") || "—"}
+          </span>
+          {fusion.judgeModel && (
+            <>
+              {"  ·  "}
+              <span className="font-medium text-txt-secondary">Judge:</span>{" "}
+              <span className="font-mono text-[11px]">
+                {label({ provider: fusion.judgeProvider, model: fusion.judgeModel })}
+              </span>
+            </>
+          )}
+          {typeof fusion.elapsedMs === "number" && (
+            <>
+              {"  ·  "}
+              <span className="font-mono text-[11px]">
+                {(fusion.elapsedMs / 1000).toFixed(1)}s
+              </span>
+            </>
+          )}
+        </p>
+      )}
+
+      {/* Accordion toggle */}
       <button
-        onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center gap-2 px-4 py-3 text-left transition-colors hover:bg-bg-tertiary/40"
+        onClick={() => setManual(!open)}
+        className="flex items-center gap-1.5 text-txt-secondary transition-colors hover:text-txt-primary"
       >
         <span
-          className={`text-txt-tertiary transition-transform duration-200 ${
+          className={`text-xs text-txt-tertiary transition-transform duration-150 ${
             open ? "rotate-90" : ""
           }`}
         >
           ▸
         </span>
-        <span className="font-mono text-xs font-semibold text-txt-primary">
+        <span>
           {total} model response{total === 1 ? "" : "s"}
         </span>
-        {statusLine && (
-          <span className="truncate text-[11px] font-medium text-txt-tertiary">
-            {statusLine}
-          </span>
-        )}
-        {thinking > 0 && (
-          <span className="ml-auto flex items-center gap-1.5 text-[11px] text-txt-tertiary">
-            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#39ff14]" />
-            live
+        {active && (
+          <span className="text-[11px] text-txt-tertiary">
+            {thinking > 0 ? ` · ${thinking} thinking…` : ""}
+            {done > 0 ? ` ${done} answered` : ""}
           </span>
         )}
       </button>
 
+      {/* Body: flat, clean list — model name, then its reply below. */}
       {open && (
-        <div className="space-y-2 border-t border-white/[0.06] px-4 py-3">
+        <div className="ml-1.5 mt-2 space-y-4 border-l border-white/10 pl-3">
           {fusion.models.map((m) => (
             <FusionModelRow key={`${m.slot}-${m.model}`} m={m} />
           ))}
-
-          {fusion.judging && (
-            <div className="flex items-center gap-2 px-1 py-1 text-[11px] font-medium text-txt-tertiary">
-              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#39ff14]" />
-              Judge synthesizing the master answer
-              {fusion.contributors && fusion.contributors.length > 0
-                ? ` from ${fusion.contributors.length} model${
-                    fusion.contributors.length === 1 ? "" : "s"
-                  }…`
-                : "…"}
-            </div>
-          )}
         </div>
       )}
     </div>
   );
 }
 
-/** One panel model with its own expand/collapse arrow. */
 function FusionModelRow({ m }: { m: FusionModelState }) {
-  // null => follow the smart default (open while streaming, collapsed once
-  // done). Once the user clicks the arrow, their choice sticks.
-  const [manual, setManual] = useState<boolean | null>(null);
-  const autoOpen = m.status === "thinking" || m.status === "error";
-  const open = manual !== null ? manual : autoOpen;
-
   return (
-    <div className="overflow-hidden rounded-xl border border-white/[0.05] bg-bg-primary/40">
-      <button
-        onClick={() => setManual(!open)}
-        className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-bg-tertiary/30"
-      >
-        <span
-          className={`shrink-0 text-txt-tertiary transition-transform duration-200 ${
-            open ? "rotate-90" : ""
-          }`}
-        >
-          ▸
-        </span>
-        <StatusDot status={m.status} />
-        <span className="truncate font-mono text-[11px] font-semibold text-txt-secondary">
-          {m.provider ? `${m.provider} / ` : ""}
-          {m.model}
-        </span>
-        <span className="ml-auto shrink-0 text-[10px] uppercase tracking-wide text-txt-tertiary">
-          {m.status === "thinking"
-            ? "streaming"
-            : m.status === "done"
-            ? "done"
-            : "error"}
-        </span>
-      </button>
-
-      {open && (
-        <div className="border-t border-white/[0.05] px-3 py-2.5">
-          {m.status === "error" ? (
-            <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/[0.07] px-3 py-2 text-[11px] leading-relaxed text-yellow-300">
-              ⚠️ {m.error || "Request failed"}
-            </div>
-          ) : (
-            <p className="max-h-72 overflow-y-auto whitespace-pre-wrap break-words font-sans text-[12px] leading-relaxed text-txt-secondary">
-              {m.content || <span className="text-txt-tertiary">…</span>}
-            </p>
+    <div>
+      <div className="font-mono text-[11px] text-txt-tertiary">{label(m)}</div>
+      {m.status === "error" ? (
+        <p className="mt-0.5 text-[12px] leading-relaxed text-yellow-400/90">
+          ⚠️ {m.error || "Request failed"}
+        </p>
+      ) : (
+        <p className="mt-0.5 whitespace-pre-wrap break-words text-[13px] leading-relaxed text-txt-secondary">
+          {m.content || (
+            <span className="text-txt-tertiary">
+              {m.status === "thinking" ? "…" : ""}
+            </span>
           )}
-        </div>
+        </p>
       )}
     </div>
-  );
-}
-
-function StatusDot({ status }: { status: "thinking" | "done" | "error" }) {
-  if (status === "done") {
-    return <span className="h-2 w-2 shrink-0 rounded-full bg-green-400" />;
-  }
-  if (status === "error") {
-    return <span className="h-2 w-2 shrink-0 rounded-full bg-yellow-400" />;
-  }
-  return (
-    <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-[#39ff14]" />
   );
 }

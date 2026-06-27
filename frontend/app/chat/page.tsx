@@ -33,24 +33,32 @@ export default function ChatPage() {
   const selectConversation = useConversationStore((s) => s.selectConversation);
   const persistMessages = useConversationStore((s) => s.setMessages);
   const setConversationModel = useConversationStore((s) => s.setConversationModel);
+  const pruneEmpty = useConversationStore((s) => s.pruneEmpty);
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickRef = useRef(true);
   const loadedFor = useRef<string | null>(null);
 
-  // Ensure there is always an active conversation.
+  // On mount: clean up leftover empty chats and NEVER auto-create one. Reopen
+  // the most recent real chat if any; otherwise show the empty state (no chat
+  // is created until the user actually sends a message).
   useEffect(() => {
-    if (!activeId) {
-      if (conversations.length) selectConversation(conversations[0].id);
-      else createConversation(selectedModel);
-    }
+    pruneEmpty();
+    const convs = useConversationStore.getState().conversations;
+    const valid = convs.find((c) => c.id === activeId);
+    if (!valid) selectConversation(convs[0]?.id ?? null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Load the active conversation's messages into the chat hook when it changes.
   useEffect(() => {
-    if (!activeId || loadedFor.current === activeId) return;
+    if (activeId === null) {
+      setMessages([]);
+      loadedFor.current = null;
+      return;
+    }
+    if (loadedFor.current === activeId) return;
     loadedFor.current = activeId;
     const conv = useConversationStore.getState().conversations.find((c) => c.id === activeId);
     setMessages(conv?.messages ?? []);

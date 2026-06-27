@@ -123,6 +123,9 @@ export interface FusionState {
   models: FusionModelState[];
   contributors?: string[];
   judging: boolean;
+  judgeProvider?: string;
+  judgeModel?: string;
+  elapsedMs?: number;
 }
 
 export interface ChatMessage {

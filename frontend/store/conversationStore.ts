@@ -19,12 +19,14 @@ interface ConversationState {
   activeId: string | null;
 
   createConversation: (model: string) => string;
-  selectConversation: (id: string) => void;
+  selectConversation: (id: string | null) => void;
   deleteConversation: (id: string) => void;
   renameConversation: (id: string, title: string) => void;
   setConversationModel: (id: string, model: string) => void;
   /** Replace a conversation's messages (used after each send/stream). */
   setMessages: (id: string, messages: ChatMessage[]) => void;
+  /** Remove empty (no-message) conversations except the currently active one. */
+  pruneEmpty: () => void;
   clearAll: () => void;
 }
 
@@ -63,7 +65,6 @@ export const useConversationStore = create<ConversationState>()(
       },
 
       selectConversation: (id) => set({ activeId: id }),
-
       deleteConversation: (id) =>
         set((s) => {
           const remaining = s.conversations.filter((c) => c.id !== id);
@@ -100,6 +101,13 @@ export const useConversationStore = create<ConversationState>()(
                     c.title === "New chat" ? deriveTitle(messages) : c.title,
                 }
               : c,
+          ),
+        })),
+
+      pruneEmpty: () =>
+        set((s) => ({
+          conversations: s.conversations.filter(
+            (c) => c.messages.length > 0 || c.id === s.activeId,
           ),
         })),
 

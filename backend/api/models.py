@@ -47,6 +47,39 @@ async def list_models(request: Request) -> dict:
 
     data = []
 
+    # 0) Special routing modes — exposed so any OpenAI-compatible client (other
+    # agents/IDEs) lists them and can route through them, just like a model.
+    # Only when at least one real model is usable.
+    if active_models:
+        data.append({
+            "id": "auto",
+            "object": "model",
+            "created": created,
+            "owned_by": "nexusllm",
+            "x-nexusllm": {
+                "description": "Auto — routes to the best available model and "
+                "fails over automatically if one errors.",
+                "providers": [],
+                "capabilities": ["chat"],
+                "context_window": None,
+                "rate_limits": None,
+            },
+        })
+        data.append({
+            "id": "fusion",
+            "object": "model",
+            "created": created,
+            "owned_by": "nexusllm",
+            "x-nexusllm": {
+                "description": "Fusion — queries several models in parallel and "
+                "synthesizes their answers into one.",
+                "providers": [],
+                "capabilities": ["chat"],
+                "context_window": None,
+                "rate_limits": None,
+            },
+        })
+
     # 1) Alias entries — only when at least one underlying model is available.
     for group in config.model_aliases:
         served = [mid for mid in group.models if mid in available_ids]

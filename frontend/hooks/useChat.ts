@@ -424,7 +424,8 @@ interface FusionEvent {
     | "model_done"
     | "model_error"
     | "fallback"
-    | "judge_start";
+    | "judge_start"
+    | "judge_model";
   slot?: number;
   model?: string;
   provider?: string;
@@ -455,11 +456,15 @@ async function consumeFusionStream(
   let judgeRaw = "";
   let judgeReasoning = "";
   let errorMsg = "";
+  const startTs = Date.now();
 
   const snapshot = (): FusionState => ({
     models: fusion.models.map((m) => ({ ...m })),
     contributors: fusion.contributors ? [...fusion.contributors] : undefined,
     judging: fusion.judging,
+    judgeProvider: fusion.judgeProvider,
+    judgeModel: fusion.judgeModel,
+    elapsedMs: fusion.elapsedMs,
   });
 
   const findIdx = (slot: number, model: string): number => {
@@ -512,6 +517,10 @@ async function consumeFusionStream(
       case "judge_start":
         fusion.judging = true;
         fusion.contributors = f.contributors || [];
+        break;
+      case "judge_model":
+        fusion.judgeProvider = f.provider;
+        fusion.judgeModel = f.model;
         break;
     }
   };
@@ -569,8 +578,9 @@ async function consumeFusionStream(
     }
   }
 
-  // Judging finished — drop the live indicator.
+  // Judging finished — drop the live indicator and record total time.
   fusion.judging = false;
+  fusion.elapsedMs = Date.now() - startTs;
   const { content } = splitThinkTags(judgeRaw);
 
   if (errorMsg && !content) {

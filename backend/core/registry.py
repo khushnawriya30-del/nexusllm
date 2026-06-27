@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -270,6 +271,19 @@ _CAPABILITY_HINTS: list[tuple[str, str]] = [
     ("r1", "reasoning"),
     ("thinking", "reasoning"),
 ]
+
+# Known multimodal (image-capable) model families. Their ids rarely contain
+# "vision", so we match family patterns to keep images flowing to them while
+# stripping images for text-only models (avoids upstream errors).
+_VISION_MODEL_RE = re.compile(
+    r"vision|(^|[^a-z])vl([^a-z]|$)|-vl-|"
+    r"gpt-?5|gpt-?4o|gpt-?4\.1|"
+    r"claude.*(opus|sonnet)|"
+    r"gemini|pixtral|llava|internvl|moondream|"
+    r"llama.*(vision|3\.2|4)|qwen.*vl|"
+    r"grok-?[234]|phi-?4-multimodal|multimodal",
+    re.I,
+)
 
 
 def _infer_capabilities(model_id: str) -> list[str]:
@@ -941,6 +955,20 @@ class ModelRegistry:
     def is_enabled(self, provider_id: str, model_id: str) -> bool:
         """True unless the user has toggled this model off."""
         return (provider_id, model_id) not in self._disabled
+
+    def supports_vision(self, provider_id: str, model_id: str) -> bool:
+        """True if this model can accept image input (multimodal).
+
+        Uses the inferred "vision" tag, plus a pattern for known multimodal
+        families (their ids rarely contain the word "vision" but they do accept
+        images): GPT-5/4o, Claude Opus/Sonnet, Gemini, Qwen-VL, Llama-vision,
+        Pixtral, LLaVA, etc. Everything else is treated as text-only so image
+        content is stripped instead of erroring.
+        """
+        m = self._models.get((provider_id, model_id))
+        if m and "vision" in (m.capabilities or []):
+            return True
+        return bool(_VISION_MODEL_RE.search((model_id or "").lower()))
 
     def routable_models(self) -> list[tuple[str, str]]:
         """All chat-routable (provider_id, model_id) pairs.

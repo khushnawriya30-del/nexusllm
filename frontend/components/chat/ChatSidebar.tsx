@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { useConversationStore } from "@/store/conversationStore";
-import { useChatStore } from "@/store/chatStore";
 
 export function ChatSidebar({
   open,
@@ -13,17 +12,19 @@ export function ChatSidebar({
 }) {
   const conversations = useConversationStore((s) => s.conversations);
   const activeId = useConversationStore((s) => s.activeId);
-  const createConversation = useConversationStore((s) => s.createConversation);
   const selectConversation = useConversationStore((s) => s.selectConversation);
   const deleteConversation = useConversationStore((s) => s.deleteConversation);
   const renameConversation = useConversationStore((s) => s.renameConversation);
-  const selectedModel = useChatStore((s) => s.selectedModel);
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
 
+  // Only show real chats (those with messages). A "New chat" just clears the
+  // view — no empty history entry is created until the user sends something.
+  const visible = conversations.filter((c) => c.messages.length > 0);
+
   const newChat = () => {
-    createConversation(selectedModel);
+    selectConversation(null);
     onClose();
   };
 
@@ -56,13 +57,13 @@ export function ChatSidebar({
       </div>
 
       <div className="flex-1 overflow-y-auto px-2 pb-3">
-        {conversations.length === 0 ? (
+        {visible.length === 0 ? (
           <p className="px-3 py-6 text-center text-xs text-txt-tertiary">
             No chats yet. Start a new one.
           </p>
         ) : (
           <div className="space-y-0.5">
-            {conversations.map((c) => (
+            {visible.map((c) => (
               <div
                 key={c.id}
                 className={`group flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors ${

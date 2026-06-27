@@ -120,7 +120,7 @@ function MessageBubbleImpl({
         }`}
       >
         {isUser ? (
-          <div className="rounded-2xl bg-white px-5 py-3.5 shadow-sm">
+          <div className="rounded-2xl bg-gray-900 px-5 py-3.5 shadow-sm dark:bg-white">
             {message.images && message.images.length > 0 && (
               <div className="mb-2 flex flex-wrap gap-2">
                 {message.images.map((src, i) => (
@@ -129,13 +129,13 @@ function MessageBubbleImpl({
                     key={i}
                     src={src}
                     alt=""
-                    className="max-h-48 rounded-lg border border-black/10 object-cover"
+                    className="max-h-48 rounded-lg border border-white/10 object-cover"
                   />
                 ))}
               </div>
             )}
             {message.content && (
-              <p className="whitespace-pre-wrap font-medium leading-relaxed text-gray-900">
+              <p className="whitespace-pre-wrap font-medium leading-relaxed text-white dark:text-gray-900">
                 {message.content}
               </p>
             )}
@@ -156,39 +156,30 @@ function MessageBubbleImpl({
           </div>
         ) : (
           <div className="w-full">
-            {message.fusion && <FusionPanel fusion={message.fusion} />}
-            {(message.reasoning ||
-              (isStreaming && !message.content && !message.fusion)) && (
-              <div className="mb-4">
-                <ThinkingBlock
-                  reasoning={message.reasoning || ""}
-                  active={Boolean(isStreaming) && !message.content}
-                />
+            {message.content && (
+              <div className="rounded-2xl bg-bg-tertiary/70 px-5 py-4 ring-1 ring-border">
+                <div
+                  className={`prose prose-sm max-w-none text-txt-primary prose-headings:text-txt-primary prose-headings:font-semibold prose-p:text-txt-primary prose-p:leading-relaxed prose-strong:text-txt-primary prose-strong:font-semibold prose-code:text-txt-primary prose-pre:bg-bg-primary prose-pre:border prose-pre:border-white/[0.06] prose-a:text-txt-primary prose-a:underline ${
+                    isStreaming ? "typing-cursor" : ""
+                  }`}
+                >
+                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
+                    {message.content}
+                  </ReactMarkdown>
+                </div>
               </div>
             )}
-            <div
-              className={`prose prose-sm max-w-none text-txt-primary prose-headings:text-txt-primary prose-headings:font-semibold prose-p:text-txt-primary prose-p:leading-relaxed prose-strong:text-txt-primary prose-strong:font-semibold prose-code:text-txt-primary prose-pre:bg-bg-primary prose-pre:border prose-pre:border-white/[0.06] prose-a:text-txt-primary prose-a:underline ${
-                isStreaming && message.content ? "typing-cursor" : ""
-              }`}
-            >
-              <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
-                {message.content || ""}
-              </ReactMarkdown>
-            </div>
-            {message.fusion?.contributors &&
-              message.fusion.contributors.length > 0 &&
-              message.content &&
-              !isStreaming && (
-                <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-white/[0.06] pt-3 text-[11px] text-txt-tertiary">
-                  <span className="font-medium">Synthesized from:</span>
-                  {message.fusion.contributors.map((c) => (
-                    <span
-                      key={c}
-                      className="rounded-md bg-bg-tertiary/50 px-2 py-0.5 font-mono text-[10px] text-txt-secondary"
-                    >
-                      {c}
-                    </span>
-                  ))}
+            {/* OUTSIDE the answer box, below it (no box of their own): */}
+            {/* Fusion panel — Panel · Judge · time + the model responses. */}
+            {message.fusion && <FusionPanel fusion={message.fusion} />}
+            {/* Thought process (single-model reasoning). */}
+            {!message.fusion &&
+              (message.reasoning || (isStreaming && !message.content)) && (
+                <div className="mt-3">
+                  <ThinkingBlock
+                    reasoning={message.reasoning || ""}
+                    active={Boolean(isStreaming) && !message.content}
+                  />
                 </div>
               )}
           </div>

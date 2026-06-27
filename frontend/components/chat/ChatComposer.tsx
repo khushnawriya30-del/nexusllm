@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ThinkingControl } from "@/components/playground/ThinkingControl";
 
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024; // 4MB per image safety cap
@@ -16,6 +16,7 @@ export function ChatComposer({
 }) {
   const [text, setText] = useState("");
   const [images, setImages] = useState<string[]>([]);
+  const [dragOver, setDragOver] = useState(false);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -26,10 +27,11 @@ export function ChatComposer({
     el.style.height = `${Math.min(el.scrollHeight, 220)}px`;
   }, [text]);
 
-  const addFiles = (files: FileList | null) => {
+  // Read image files into base64 data-URLs and attach them.
+  const addFiles = useCallback((files: FileList | File[] | null) => {
     if (!files) return;
     Array.from(files).forEach((file) => {
-      if (!file.type.startsWith("image/")) return;
+      if (!file.type.startsWith("image/")) return; // models accept images only
       if (file.size > MAX_IMAGE_BYTES) {
         alert(`"${file.name}" is larger than 4MB and was skipped.`);
         return;
@@ -39,7 +41,59 @@ export function ChatComposer({
         setImages((prev) => [...prev, reader.result as string]);
       reader.readAsDataURL(file);
     });
-  };
+  }, []);
+
+  // Drag & drop anywhere on the page → attach images (and stop the browser
+  // from opening the dropped file in a new tab/window).
+  useEffect(() => {
+    const hasFiles = (e: DragEvent) =>
+      Array.from(e.dataTransfer?.types ?? []).includes("Files");
+
+    const onDragOver = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      setDragOver(true);
+    };
+    const onDragLeave = (e: DragEvent) => {
+      if (e.relatedTarget === null) setDragOver(false);
+    };
+    const onDrop = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      setDragOver(false);
+      if (e.dataTransfer?.files?.length) addFiles(e.dataTransfer.files);
+    };
+
+    window.addEventListener("dragover", onDragOver);
+    window.addEventListener("dragleave", onDragLeave);
+    window.addEventListener("drop", onDrop);
+    return () => {
+      window.removeEventListener("dragover", onDragOver);
+      window.removeEventListener("dragleave", onDragLeave);
+      window.removeEventListener("drop", onDrop);
+    };
+  }, [addFiles]);
+
+  // Paste (Ctrl+V) an image from the clipboard → attach it.
+  useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      const files: File[] = [];
+      for (const it of Array.from(items)) {
+        if (it.type.startsWith("image/")) {
+          const f = it.getAsFile();
+          if (f) files.push(f);
+        }
+      }
+      if (files.length) {
+        e.preventDefault();
+        addFiles(files);
+      }
+    };
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+  }, [addFiles]);
 
   const submit = () => {
     const trimmed = text.trim();
@@ -50,7 +104,16 @@ export function ChatComposer({
   };
 
   return (
-    <div className="border-t border-border bg-bg-primary/60 px-4 py-3 backdrop-blur">
+    <div className="relative border-t border-border bg-bg-primary/60 px-4 py-3 backdrop-blur">
+      {/* Drag overlay */}
+      {dragOver && (
+        <div className="pointer-events-none absolute inset-0 z-20 m-2 flex items-center justify-center rounded-2xl border-2 border-dashed border-accent/60 bg-bg-primary/80 backdrop-blur-sm">
+          <span className="text-sm font-semibold text-txt-primary">
+            Drop image to attach
+          </span>
+        </div>
+      )}
+
       <div className="mx-auto w-full max-w-3xl">
         {/* Reasoning control (only shows for capable models) */}
         <div className="mb-2 flex justify-start">
@@ -111,7 +174,7 @@ export function ChatComposer({
               }
             }}
             rows={1}
-            placeholder="Message NexusLLM…  (↵ send · ⇧↵ newline)"
+            placeholder="Message NexusLLM…  (↵ send · ⇧↵ newline · drop or paste an image)"
             className="max-h-[220px] flex-1 resize-none bg-transparent px-2 py-2 text-sm text-txt-primary placeholder:text-txt-tertiary focus:outline-none"
           />
 

@@ -32,12 +32,21 @@ logger = logging.getLogger("nexusllm.fusion")
 DEFAULT_PANEL_SIZE = 4
 
 _JUDGE_SYSTEM = (
-    "You are an expert judge and synthesizer. Several AI models independently "
-    "answered the same user request. Read every candidate answer, keep the "
-    "most correct and useful points from each, resolve any contradictions using "
-    "your own knowledge, and produce ONE single, comprehensive, accurate final "
-    "answer. Do not mention that multiple models were used or that you are "
-    "synthesizing — just give the best possible answer directly."
+    "You are the synthesis step of NexusLLM's 'Fusion' mode. Several AI models "
+    "independently answered the same user request. Read every candidate answer, "
+    "keep the most correct and useful points from each, resolve any "
+    "contradictions using your own knowledge, and produce ONE single, "
+    "comprehensive, accurate final answer. Normally do not mention that multiple "
+    "models were used or that you are synthesizing — just give the best possible "
+    "answer directly.\n\n"
+    "IMPORTANT exception — identity questions: if the user asks which model or AI "
+    "you are, which company made/created/trained you, your name, or your "
+    "version, do NOT claim to be any single specific model or vendor (e.g. do "
+    "not say 'I am Mistral/GPT/Claude…'). Instead briefly and politely explain "
+    "that they are using Fusion mode, which blends the answers of several "
+    "different AI models into one, so this response cannot be attributed to a "
+    "single model — and offer to switch to a specific model if they want a "
+    "definite identity."
 )
 
 
@@ -293,10 +302,17 @@ async def stream_fusion(
             "fusion judge failed (%s); falling back to best panel answer from %s",
             result.error_reason, best_model,
         )
+        yield _sse({"fusion": {"type": "judge_model",
+                               "provider": "fusion", "model": best_model}})
         for piece in _content_chunks(best_answer):
             yield _sse({"choices": [{"index": 0, "delta": {"content": piece}}]})
         yield b"data: [DONE]\n\n"
         return
+
+    # Tell the client which model actually synthesized the answer.
+    yield _sse({"fusion": {"type": "judge_model",
+                           "provider": result.final_provider,
+                           "model": result.final_model}})
 
     import time
     started = time.perf_counter()

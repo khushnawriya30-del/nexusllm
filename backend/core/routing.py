@@ -744,9 +744,36 @@ class RoutingEngine:
             payload["reasoning_effort"] = effort
         return payload
 
+    def _flatten_images_if_no_vision(self, provider_id: str, payload: dict) -> dict:
+        """Models without vision can't accept multimodal (image_url) content and
+        would error if it's sent — which happens when a conversation has an
+        earlier image and the user switches to a non-vision model. So for such
+        models, downgrade any list-style message content to plain text (keep the
+        text parts, drop the images). Vision models keep their images intact.
+        """
+        model = payload.get("model")
+        if not model or (
+            self._registry and self._registry.supports_vision(provider_id, model)
+        ):
+            return payload
+        msgs = payload.get("messages")
+        if not isinstance(msgs, list):
+            return payload
+        for m in msgs:
+            content = m.get("content") if isinstance(m, dict) else None
+            if isinstance(content, list):
+                texts = [
+                    p.get("text", "")
+                    for p in content
+                    if isinstance(p, dict) and p.get("type") == "text"
+                ]
+                m["content"] = " ".join(t for t in texts if t)
+        return payload
+
     def _adapt_payload(self, provider_id: str, payload: dict) -> dict:
         """Clamp/adjust request params to a provider's accepted ranges."""
         payload = self._apply_thinking(payload)
+        payload = self._flatten_images_if_no_vision(provider_id, payload)
         limits = self._PARAM_LIMITS.get(provider_id)
         if not limits:
             return payload
