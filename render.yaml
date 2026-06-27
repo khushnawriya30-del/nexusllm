@@ -21,7 +21,6 @@ services:
     name: nexusllm-backend
     runtime: docker
     rootDir: backend
-    dockerfilePath: ./Dockerfile
     plan: free
     healthCheckPath: /health
     envVars:
