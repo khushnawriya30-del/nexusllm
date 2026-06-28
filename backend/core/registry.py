@@ -315,6 +315,10 @@ def _infer_capabilities(model_id: str) -> list[str]:
     for needle, cap in _CAPABILITY_HINTS:
         if needle in lower:
             caps.add(cap)
+    # Family-pattern reasoning detection (catches qwen3/glm/gpt-oss/deepseek/
+    # claude/gpt-5/etc. whose ids don't contain a literal "reason" keyword).
+    if _REASONING_MODEL_RE.search(lower):
+        caps.add("reasoning")
     # Pure embedding models are not chat models.
     if "embed" in lower:
         caps.discard("chat")
@@ -661,22 +665,28 @@ class ModelRegistry:
                     elif k == "general":
                         general = [str(x).lower() for x in (lab.get("values") or [])]
                 model_id = f"{publisher}/{name}" if publisher else name
+                # Combine the capability pills (general labels) + the model's
+                # own spec blurb — NVIDIA states reasoning/vision capability in
+                # BOTH, so we match either (e.g. Llama-3.x list "reasoning" only
+                # in the description, GPT-OSS/Nemotron/Kimi tag it as a pill).
+                desc = str(res.get("description") or "").lower()
+                spec = desc + " || " + " ".join(general)
                 is_chat = "chat" in general
                 caps: set[str] = set()
                 if is_chat:
                     caps.add("chat")
-                if any(("reason" in g or "thinking" in g) for g in general):
+                if re.search(r"reason|thinking|chain[- ]of[- ]thought|\bcot\b", spec):
                     caps.add("reasoning")
                 if any(
-                    k in g
-                    for g in general
+                    k in spec
                     for k in (
-                        "image-to-text", "image to text", "visual", "vision",
-                        "vlm", "multimodal", "ocr", "video",
+                        "image-to-text", "image to text", "from image", "visual",
+                        "vision", "vlm", "multimodal", "multi-modal", "ocr",
+                        "omni", "video",
                     )
                 ):
                     caps.add("vision")
-                if any("cod" in g for g in general):  # code / coding
+                if any(k in spec for k in ("cod", "program")):  # code / coding / programming
                     caps.add("code")
                 free[_norm(model_id)] = (model_id, is_chat, caps)
 
@@ -715,7 +725,12 @@ class ModelRegistry:
             if _is_embedding_model(rid):
                 capabilities = ["embed"]
             elif is_chat and _is_chat_model(rid):
-                merged = caps | set(_infer_capabilities(rid))
+                # Catalogue is authoritative for NVIDIA reasoning — don't let
+                # the id family-pattern re-add it (e.g. "qwen3-...-instruct" is
+                # the non-thinking variant, so NVIDIA lists no reasoning).
+                inferred = set(_infer_capabilities(rid))
+                inferred.discard("reasoning")
+                merged = caps | inferred
                 order = ["chat", "vision", "code", "embed", "reasoning"]
                 capabilities = [c for c in order if c in merged]
             else:
@@ -1155,15 +1170,15 @@ class ModelRegistry:
     def supports_reasoning(self, provider_id: str, model_id: str) -> bool:
         """True if this model performs extended reasoning/"thinking".
 
-        Prefers the discovered "reasoning" capability tag — authoritative when
-        sourced from the provider's own catalogue (e.g. NVIDIA's Free-Endpoint
-        labels mark Kimi-K2, Nemotron, GPT-OSS, GLM, etc. as reasoning even
-        though their ids don't contain the word). Falls back to a family
-        pattern for providers without capability metadata.
+        Registered models are authoritative — their "reasoning" capability is
+        set at discovery from the provider's own catalogue (NVIDIA) or the
+        id family-pattern (other providers), so we trust it exactly. Only
+        unregistered models (e.g. a freshly-added custom provider not yet in
+        the registry) fall back to the family pattern.
         """
         m = self._models.get((provider_id, model_id))
-        if m and "reasoning" in (m.capabilities or []):
-            return True
+        if m is not None:
+            return "reasoning" in (m.capabilities or [])
         return bool(_REASONING_MODEL_RE.search((model_id or "").lower()))
 
     def routable_models(self) -> list[tuple[str, str]]:

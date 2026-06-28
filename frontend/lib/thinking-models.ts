@@ -70,7 +70,14 @@ export function supportsThinking(
   capabilities?: string[],
 ): boolean {
   if (!modelId || modelId === "auto" || modelId === "fusion") return false;
-  if (capabilities && capabilities.includes("reasoning")) return true;
+  // When the backend provides capabilities, trust them exactly — they're set
+  // at discovery from the provider's own catalogue (e.g. NVIDIA marks which
+  // models actually reason) and are authoritative over any id guess.
+  if (capabilities && capabilities.length > 0) {
+    return capabilities.includes("reasoning");
+  }
+  // No capability info (e.g. an external/custom model not in the live list) —
+  // fall back to the family pattern.
   if (THINKING_PATTERNS.some((re) => re.test(modelId))) return true;
   return THINKING_CAPABLE_MODELS.some(
     (m) => modelId.includes(m.modelId) || m.modelId.includes(modelId),
