@@ -16,6 +16,7 @@ data class Message(
     val role: String,                 // "user" | "assistant"
     val content: String = "",
     val reasoning: String = "",       // collected "thinking" tokens, if any
+    val images: List<String> = emptyList(), // attached image data URLs (user)
 )
 
 @Serializable

@@ -75,6 +75,9 @@ private fun AppRoot() {
             onSelectModel = vm::selectModel,
             onToggleThinking = vm::setThinking,
             onSetIntensity = vm::setIntensity,
+            onAddImage = vm::addImage,
+            onRemoveImage = vm::removeImage,
+            onTranscribe = vm::transcribe,
             onOpenSettings = { route = Route.Settings },
         )
     }

@@ -7,6 +7,12 @@ import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.addJsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
+import kotlinx.serialization.json.putJsonObject
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -23,6 +29,13 @@ sealed interface ChatEvent {
     data object Done : ChatEvent
     data class Failure(val message: String) : ChatEvent
 }
+
+/** An outgoing chat message; [images] are data URLs (multimodal user turns). */
+data class OutMessage(
+    val role: String,
+    val text: String,
+    val images: List<String> = emptyList(),
+)
 
 /**
  * Talks to any OpenAI-compatible NexusLLM endpoint using the user's own base
@@ -58,21 +71,49 @@ class NexusClient(
         }
     }
 
-    /** Streams a chat completion as SSE. */
+    /** Streams a chat completion as SSE. Supports multimodal user turns
+     *  (text + image data URLs) using the OpenAI content-parts format. */
     fun streamChat(
         model: String,
-        messages: List<ChatMessageDto>,
+        messages: List<OutMessage>,
         thinkingEnabled: Boolean,
         thinkingIntensity: String,
     ): Flow<ChatEvent> = callbackFlow {
-        val payload = ChatRequest(
-            model = model,
-            messages = messages,
-            stream = true,
-            thinkingEnabled = if (thinkingEnabled) true else null,
-            thinkingIntensity = if (thinkingEnabled) thinkingIntensity else null,
-        )
-        val bodyStr = json.encodeToString(ChatRequest.serializer(), payload)
+        val payload = buildJsonObject {
+            put("model", model)
+            put("stream", true)
+            putJsonObject("stream_options") { put("include_usage", true) }
+            if (thinkingEnabled) {
+                put("thinking_enabled", true)
+                put("thinking_intensity", thinkingIntensity)
+            }
+            putJsonArray("messages") {
+                for (m in messages) {
+                    addJsonObject {
+                        put("role", m.role)
+                        if (m.images.isEmpty()) {
+                            put("content", m.text)
+                        } else {
+                            putJsonArray("content") {
+                                if (m.text.isNotEmpty()) {
+                                    addJsonObject {
+                                        put("type", "text")
+                                        put("text", m.text)
+                                    }
+                                }
+                                for (img in m.images) {
+                                    addJsonObject {
+                                        put("type", "image_url")
+                                        putJsonObject("image_url") { put("url", img) }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        val bodyStr = payload.toString()
         val request = authHeaders(
             Request.Builder()
                 .url("$baseUrl/v1/chat/completions")

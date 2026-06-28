@@ -3,6 +3,7 @@ package com.nexusllm.app.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -63,6 +64,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -72,6 +74,25 @@ import com.nexusllm.app.data.Message
 import com.nexusllm.app.data.ModelEntry
 import com.nexusllm.app.ui.components.LightningMark
 import com.nexusllm.app.ui.components.TypingDots
+import android.Manifest
+import android.content.pm.PackageManager
+import android.graphics.BitmapFactory
+import android.net.Uri
+import android.util.Base64
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.PhotoLibrary
+import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
+import com.nexusllm.app.data.AudioRecorder
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -86,6 +107,9 @@ fun ChatScreen(
     onSelectModel: (String) -> Unit,
     onToggleThinking: (Boolean) -> Unit,
     onSetIntensity: (String) -> Unit,
+    onAddImage: (String) -> Unit,
+    onRemoveImage: (Int) -> Unit,
+    onTranscribe: (ByteArray, (String) -> Unit) -> Unit,
     onOpenSettings: () -> Unit,
 ) {
     val cs = MaterialTheme.colorScheme
@@ -140,7 +164,7 @@ fun ChatScreen(
                     },
                     actions = {
                         IconButton(onClick = onNewChat) {
-                            Icon(Icons.Filled.Add, "New chat", tint = cs.onBackground)
+                            Icon(Icons.Filled.Edit, "New chat", tint = cs.onBackground)
                         }
                     },
                 )
@@ -166,8 +190,14 @@ fun ChatScreen(
                     showThinking = state.selectedSupportsReasoning,
                     thinkingEnabled = state.thinkingEnabled,
                     intensity = state.thinkingIntensity,
+                    pendingImages = state.pendingImages,
+                    busyVoice = state.busyVoice,
+                    voiceError = state.voiceError,
                     onToggleThinking = onToggleThinking,
                     onSetIntensity = onSetIntensity,
+                    onAddImage = onAddImage,
+                    onRemoveImage = onRemoveImage,
+                    onTranscribe = onTranscribe,
                     onSend = onSend,
                     onStop = onStop,
                 )
@@ -213,12 +243,30 @@ private fun MessageBubble(m: Message, streaming: Boolean) {
                 shape = RoundedCornerShape(18.dp),
                 modifier = Modifier.widthInMax(),
             ) {
-                Text(
-                    m.content,
-                    color = cs.onSurface,
-                    fontSize = 15.sp,
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                )
+                Column(Modifier.padding(6.dp)) {
+                    m.images.forEach { dataUrl ->
+                        val bmp = remember(dataUrl) { decodeDataUrl(dataUrl) }
+                        if (bmp != null) {
+                            Image(
+                                bitmap = bmp,
+                                contentDescription = null,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier
+                                    .padding(4.dp)
+                                    .size(190.dp)
+                                    .clip(RoundedCornerShape(12.dp)),
+                            )
+                        }
+                    }
+                    if (m.content.isNotBlank()) {
+                        Text(
+                            m.content,
+                            color = cs.onSurface,
+                            fontSize = 15.sp,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                        )
+                    }
+                }
             }
         }
     } else {
@@ -309,6 +357,7 @@ private fun EmptyState(onSuggestion: (String) -> Unit) {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun Composer(
     enabled: Boolean,
@@ -316,20 +365,117 @@ private fun Composer(
     showThinking: Boolean,
     thinkingEnabled: Boolean,
     intensity: String,
+    pendingImages: List<String>,
+    busyVoice: Boolean,
+    voiceError: String?,
     onToggleThinking: (Boolean) -> Unit,
     onSetIntensity: (String) -> Unit,
+    onAddImage: (String) -> Unit,
+    onRemoveImage: (Int) -> Unit,
+    onTranscribe: (ByteArray, (String) -> Unit) -> Unit,
     onSend: (String) -> Unit,
     onStop: () -> Unit,
 ) {
     val cs = MaterialTheme.colorScheme
+    val context = LocalContext.current
     var text by remember { mutableStateOf("") }
+    var showAttach by remember { mutableStateOf(false) }
+    var recording by remember { mutableStateOf(false) }
+    val recorder = remember { AudioRecorder(context) }
+
+    fun appendTranscript(t: String) {
+        text = if (text.isBlank()) t else "$text $t".trim()
+    }
+
+    val imgLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia(),
+    ) { uri: Uri? ->
+        if (uri != null) uriToDataUrl(context, uri)?.let(onAddImage)
+    }
+    val docLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri: Uri? ->
+        if (uri != null) uriToBytes(context, uri)?.let { b -> onTranscribe(b) { appendTranscript(it) } }
+    }
+    val micPerm = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted -> if (granted) recording = recorder.start() }
+
+    fun toggleMic() {
+        if (recording) {
+            recording = false
+            recorder.stop()?.let { b -> onTranscribe(b) { appendTranscript(it) } }
+        } else {
+            val granted = ContextCompat.checkSelfPermission(
+                context, Manifest.permission.RECORD_AUDIO,
+            ) == PackageManager.PERMISSION_GRANTED
+            if (granted) recording = recorder.start()
+            else micPerm.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
 
     Column(Modifier.fillMaxWidth().padding(12.dp)) {
+        if (voiceError != null) {
+            Text("⚠️ $voiceError", color = cs.onSurfaceVariant, fontSize = 12.sp, modifier = Modifier.padding(bottom = 6.dp))
+        }
+        if (busyVoice) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 6.dp)) {
+                CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp, color = cs.onSurfaceVariant)
+                Spacer(Modifier.width(8.dp))
+                Text("Transcribing…", color = cs.onSurfaceVariant, fontSize = 12.sp)
+            }
+        }
+        if (pendingImages.isNotEmpty()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(bottom = 8.dp),
+            ) {
+                pendingImages.forEachIndexed { i, dataUrl ->
+                    val bmp = remember(dataUrl) { decodeDataUrl(dataUrl) }
+                    Box(Modifier.padding(end = 8.dp)) {
+                        if (bmp != null) {
+                            Image(
+                                bitmap = bmp,
+                                contentDescription = null,
+                                modifier = Modifier.size(60.dp).clip(RoundedCornerShape(12.dp)),
+                            )
+                        } else {
+                            Box(Modifier.size(60.dp).clip(RoundedCornerShape(12.dp)).background(cs.surfaceVariant))
+                        }
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(2.dp)
+                                .size(20.dp)
+                                .clip(CircleShape)
+                                .background(cs.background.copy(alpha = 0.7f))
+                                .clickable { onRemoveImage(i) },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(Icons.Filled.Close, "Remove", tint = cs.onBackground, modifier = Modifier.size(13.dp))
+                        }
+                    }
+                }
+            }
+        }
         if (showThinking) {
             ReasoningControl(thinkingEnabled, intensity, onToggleThinking, onSetIntensity)
             Spacer(Modifier.height(8.dp))
         }
         Row(verticalAlignment = Alignment.Bottom) {
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .background(cs.surfaceVariant)
+                    .clickable(enabled = enabled) { showAttach = true },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Filled.Add, "Attach", tint = cs.onSurface)
+            }
+            Spacer(Modifier.width(8.dp))
             TextField(
                 value = text,
                 onValueChange = { text = it },
@@ -351,28 +497,83 @@ private fun Composer(
                 maxLines = 6,
             )
             Spacer(Modifier.width(8.dp))
-            val canSend = enabled && text.isNotBlank()
-            Box(
-                modifier = Modifier
-                    .size(48.dp)
-                    .clip(CircleShape)
-                    .background(if (isStreaming || canSend) cs.primary else cs.surfaceVariant)
-                    .clickable(enabled = enabled) {
-                        if (isStreaming) { onStop() }
-                        else if (canSend) { onSend(text.trim()); text = "" }
-                    },
-                contentAlignment = Alignment.Center,
-            ) {
-                if (isStreaming) {
-                    Icon(Icons.Filled.Stop, "Stop", tint = cs.onPrimary)
-                } else {
+
+            val canSend = enabled && (text.isNotBlank() || pendingImages.isNotEmpty())
+            if (isStreaming) {
+                Box(
+                    modifier = Modifier.size(48.dp).clip(CircleShape).background(cs.primary)
+                        .clickable { onStop() },
+                    contentAlignment = Alignment.Center,
+                ) { Icon(Icons.Filled.Stop, "Stop", tint = cs.onPrimary) }
+            } else if (canSend) {
+                Box(
+                    modifier = Modifier.size(48.dp).clip(CircleShape).background(cs.primary)
+                        .clickable { onSend(text.trim()); text = "" },
+                    contentAlignment = Alignment.Center,
+                ) { Icon(Icons.AutoMirrored.Filled.Send, "Send", tint = cs.onPrimary) }
+            } else {
+                Box(
+                    modifier = Modifier.size(48.dp).clip(CircleShape)
+                        .background(if (recording) cs.primary else cs.surfaceVariant)
+                        .clickable(enabled = enabled) { toggleMic() },
+                    contentAlignment = Alignment.Center,
+                ) {
                     Icon(
-                        Icons.AutoMirrored.Filled.Send,
-                        "Send",
-                        tint = if (canSend) cs.onPrimary else cs.onSurfaceVariant,
+                        Icons.Filled.Mic,
+                        if (recording) "Stop recording" else "Voice",
+                        tint = if (recording) cs.onPrimary else cs.onSurfaceVariant,
                     )
                 }
             }
+        }
+    }
+
+    if (showAttach) {
+        ModalBottomSheet(
+            onDismissRequest = { showAttach = false },
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+            containerColor = cs.surface,
+        ) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp).padding(bottom = 24.dp)) {
+                AttachRow(Icons.Filled.PhotoLibrary, "Photo", "Send an image to a vision model") {
+                    showAttach = false
+                    imgLauncher.launch(
+                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                    )
+                }
+                AttachRow(Icons.Filled.Videocam, "Audio / Video", "Transcribe its speech and send as text") {
+                    showAttach = false
+                    docLauncher.launch(arrayOf("audio/*", "video/*"))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AttachRow(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String,
+    sub: String,
+    onClick: () -> Unit,
+) {
+    val cs = MaterialTheme.colorScheme
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .clickable { onClick() }
+            .padding(horizontal = 12.dp, vertical = 14.dp),
+    ) {
+        Box(
+            Modifier.size(40.dp).clip(RoundedCornerShape(10.dp)).background(cs.surfaceVariant),
+            contentAlignment = Alignment.Center,
+        ) { Icon(icon, null, tint = cs.onSurface) }
+        Spacer(Modifier.width(14.dp))
+        Column {
+            Text(title, color = cs.onSurface, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+            Text(sub, color = cs.onSurfaceVariant, fontSize = 12.sp)
         }
     }
 }
@@ -561,3 +762,32 @@ private fun Modifier.widthInMax(): Modifier = this.widthIn(max = 300.dp)
 
 @Composable
 private fun Modifier.heightInMaxSheet(): Modifier = this.heightIn(max = 460.dp)
+
+// ---- media helpers --------------------------------------------------------
+
+private const val MAX_IMAGE_BYTES = 5_000_000
+
+private fun uriToBytes(context: android.content.Context, uri: Uri): ByteArray? =
+    try {
+        context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+    } catch (_: Exception) {
+        null
+    }
+
+private fun uriToDataUrl(context: android.content.Context, uri: Uri): String? {
+    val bytes = uriToBytes(context, uri) ?: return null
+    if (bytes.size > MAX_IMAGE_BYTES) return null
+    val mime = context.contentResolver.getType(uri) ?: "image/jpeg"
+    val b64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
+    return "data:$mime;base64,$b64"
+}
+
+private fun decodeDataUrl(dataUrl: String): androidx.compose.ui.graphics.ImageBitmap? =
+    try {
+        val comma = dataUrl.indexOf(',')
+        val b64 = if (comma >= 0) dataUrl.substring(comma + 1) else dataUrl
+        val bytes = Base64.decode(b64, Base64.DEFAULT)
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
+    } catch (_: Exception) {
+        null
+    }

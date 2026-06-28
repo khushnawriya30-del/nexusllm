@@ -3,13 +3,14 @@ package com.nexusllm.app.ui
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.nexusllm.app.data.AssemblyAI
 import com.nexusllm.app.data.ChatEvent
-import com.nexusllm.app.data.ChatMessageDto
 import com.nexusllm.app.data.Conversation
 import com.nexusllm.app.data.ConversationStore
 import com.nexusllm.app.data.Message
 import com.nexusllm.app.data.ModelEntry
 import com.nexusllm.app.data.NexusClient
+import com.nexusllm.app.data.OutMessage
 import com.nexusllm.app.data.Settings
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -31,6 +32,9 @@ data class UiState(
     val thinkingEnabled: Boolean = false,
     val thinkingIntensity: String = "medium",
     val isStreaming: Boolean = false,
+    val pendingImages: List<String> = emptyList(), // data URLs queued to send
+    val busyVoice: Boolean = false,                 // transcribing audio/voice
+    val voiceError: String? = null,
 ) {
     val current: Conversation? get() = conversations.firstOrNull { it.id == currentId }
     val selectedSupportsReasoning: Boolean
@@ -128,6 +132,43 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     fun setThinking(enabled: Boolean) { _state.value = _state.value.copy(thinkingEnabled = enabled) }
     fun setIntensity(v: String) { _state.value = _state.value.copy(thinkingIntensity = v) }
 
+    // -- attachments & voice ----------------------------------------------
+
+    fun addImage(dataUrl: String) {
+        if (_state.value.pendingImages.size >= 4) return
+        _state.value = _state.value.copy(pendingImages = _state.value.pendingImages + dataUrl)
+    }
+
+    fun removeImage(index: Int) {
+        _state.value = _state.value.copy(
+            pendingImages = _state.value.pendingImages.filterIndexed { i, _ -> i != index },
+        )
+    }
+
+    fun clearVoiceError() {
+        if (_state.value.voiceError != null) _state.value = _state.value.copy(voiceError = null)
+    }
+
+    /** Transcribe recorded audio (or a picked audio/video file) via AssemblyAI;
+     *  the recognized text is handed back so the composer can fill itself. */
+    fun transcribe(bytes: ByteArray, onResult: (String) -> Unit) {
+        _state.value = _state.value.copy(busyVoice = true, voiceError = null)
+        viewModelScope.launch {
+            try {
+                val text = AssemblyAI.transcribe(bytes)
+                if (text.isBlank()) {
+                    _state.value = _state.value.copy(voiceError = "No speech detected")
+                } else {
+                    onResult(text)
+                }
+            } catch (e: Exception) {
+                _state.value = _state.value.copy(voiceError = e.message ?: "Transcription failed")
+            } finally {
+                _state.value = _state.value.copy(busyVoice = false)
+            }
+        }
+    }
+
     fun newChat() { _state.value = _state.value.copy(currentId = null) }
 
     fun selectChat(id: String) { _state.value = _state.value.copy(currentId = id) }
@@ -152,34 +193,40 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
     fun send(text: String) {
         val content = text.trim()
-        if (content.isEmpty() || _state.value.isStreaming) return
+        val images = _state.value.pendingImages
+        if ((content.isEmpty() && images.isEmpty()) || _state.value.isStreaming) return
         if (!_state.value.isConfigured) return
 
         val model = _state.value.selectedModel
+        val title = content.take(40).ifBlank { "Image" }
         // Ensure there is a current conversation.
-        var convs = _state.value.conversations.toMutableList()
+        val convs = _state.value.conversations.toMutableList()
         var current = _state.value.current
         if (current == null) {
-            current = Conversation(title = content.take(40), model = model)
+            current = Conversation(title = title, model = model)
             convs.add(0, current)
         }
         val conv = current
-        conv.messages.add(Message(role = "user", content = content))
+        conv.messages.add(Message(role = "user", content = content, images = images))
         val assistant = Message(role = "assistant", content = "", reasoning = "")
         conv.messages.add(assistant)
         conv.model = model
         conv.updatedAt = System.currentTimeMillis()
-        if (conv.title == "New chat") conv.title = content.take(40)
+        if (conv.title == "New chat") conv.title = title
 
         _state.value = _state.value.copy(
             conversations = convs,
             currentId = conv.id,
             isStreaming = true,
+            pendingImages = emptyList(),
         )
 
-        val history = conv.messages
-            .dropLast(1) // exclude the empty assistant placeholder
-            .map { ChatMessageDto(role = it.role, content = it.content) }
+        // Build history. Images ride only on the latest user turn to keep the
+        // payload small; older turns are sent as text.
+        val hist = conv.messages.dropLast(1)
+        val out = hist.mapIndexed { i, m ->
+            OutMessage(m.role, m.content, if (i == hist.lastIndex) m.images else emptyList())
+        }
 
         streamJob = viewModelScope.launch {
             val sb = StringBuilder()
@@ -187,7 +234,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 client().streamChat(
                     model = model,
-                    messages = history,
+                    messages = out,
                     thinkingEnabled = _state.value.thinkingEnabled,
                     thinkingIntensity = _state.value.thinkingIntensity,
                 ).collect { ev ->
