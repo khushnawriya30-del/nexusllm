@@ -3,11 +3,11 @@
 import { motion } from "framer-motion";
 import type { ReactNode } from "react";
 
-/** Fade + rise into view as it scrolls into the viewport. */
+/** Fade + slide into view as it scrolls into the viewport. */
 export function Reveal({
   children,
   delay = 0,
-  y = 24,
+  y = 30,
   className,
 }: {
   children: ReactNode;
@@ -20,8 +20,8 @@ export function Reveal({
       className={className}
       initial={{ opacity: 0, y }}
       whileInView={{ opacity: 1, y: 0 }}
-      viewport={{ once: true, margin: "-80px" }}
-      transition={{ duration: 0.6, delay, ease: [0.2, 0.8, 0.2, 1] }}
+      viewport={{ once: true, margin: "-60px" }}
+      transition={{ duration: 0.7, delay, ease: [0.22, 1, 0.36, 1] }}
     >
       {children}
     </motion.div>

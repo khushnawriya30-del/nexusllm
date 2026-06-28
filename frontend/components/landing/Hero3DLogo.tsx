@@ -9,26 +9,30 @@ import {
 } from "framer-motion";
 
 /**
- * The hero's 3D object: the NexusLLM bolt floating in space. It tilts toward
- * the pointer (real perspective) and slowly counter-rotates, with a soft glow,
- * an orbiting ring, and depth particles. Theme-aware (white / black logo).
+ * Hero 3D bolt: the NexusLLM logo floating in space with real perspective.
+ *
+ * • Tilts toward the pointer (cursor-reactive).
+ * • Slow continuous Y-rotation for that Apple product-spin feel.
+ * • Soft floor shadow that stretches as the logo tilts.
+ * • Orbit rings and depth sparks.
+ * • Theme-aware (white / black logo via CSS class).
  */
 export function Hero3DLogo() {
   const ref = useRef<HTMLDivElement>(null);
 
-  // Pointer-driven tilt
   const mx = useMotionValue(0);
   const my = useMotionValue(0);
-  const rotateY = useSpring(useTransform(mx, [-0.5, 0.5], [-22, 22]), {
-    stiffness: 120,
-    damping: 18,
+
+  const rotateY = useSpring(useTransform(mx, [-0.5, 0.5], [-25, 25]), {
+    stiffness: 100,
+    damping: 16,
   });
-  const rotateX = useSpring(useTransform(my, [-0.5, 0.5], [18, -18]), {
-    stiffness: 120,
-    damping: 18,
+  const rotateX = useSpring(useTransform(my, [-0.5, 0.5], [20, -20]), {
+    stiffness: 100,
+    damping: 16,
   });
 
-  const onMove = (e: React.MouseEvent) => {
+  const onMove = (e: React.PointerEvent) => {
     const el = ref.current;
     if (!el) return;
     const r = el.getBoundingClientRect();
@@ -40,70 +44,97 @@ export function Hero3DLogo() {
     my.set(0);
   };
 
+  // Shadow responds to tilt — stretches and fades as the logo leans.
+  const shadowScaleX = useTransform(rotateY, [-25, 0, 25], [1.3, 1, 1.3]);
+  const shadowScaleY = useTransform(rotateX, [20, 0, -20], [0.8, 1, 0.8]);
+  const shadowOpacity = useSpring(0.35, { stiffness: 50, damping: 14 });
+
   return (
     <div
       ref={ref}
-      onMouseMove={onMove}
-      onMouseLeave={onLeave}
-      className="relative mx-auto flex h-[340px] w-[340px] items-center justify-center sm:h-[440px] sm:w-[440px]"
-      style={{ perspective: 1000 }}
+      onPointerMove={onMove}
+      onPointerLeave={onLeave}
+      className="relative mx-auto flex h-[340px] w-[340px] items-center justify-center sm:h-[440px] sm:w-[440px] lg:h-[520px] lg:w-[520px]"
+      style={{ perspective: 1200 }}
     >
-      {/* glow */}
-      <div className="absolute inset-0 rounded-full bg-[radial-gradient(circle,rgba(255,255,255,0.18),transparent_60%)] blur-2xl dark:opacity-100 opacity-40" />
+      {/* ---------- Ambient glow ---------- */}
+      <div className="absolute inset-0 rounded-full bg-[radial-gradient(circle,rgba(var(--glow-accent),0.25),transparent_60%)] blur-2xl" />
 
-      {/* orbit rings */}
+      {/* ---------- Orbit rings ---------- */}
       <motion.div
         aria-hidden
-        className="absolute inset-6 rounded-full border border-txt-primary/15"
+        className="absolute inset-8 rounded-full border border-txt-primary/10"
         animate={{ rotate: 360 }}
-        transition={{ duration: 26, repeat: Infinity, ease: "linear" }}
+        transition={{ duration: 30, repeat: Infinity, ease: "linear" }}
       />
       <motion.div
         aria-hidden
-        className="absolute inset-16 rounded-full border border-dashed border-txt-primary/10"
+        className="absolute inset-20 rounded-full border border-dashed border-txt-primary/[0.06]"
         animate={{ rotate: -360 }}
-        transition={{ duration: 40, repeat: Infinity, ease: "linear" }}
+        transition={{ duration: 50, repeat: Infinity, ease: "linear" }}
       />
 
-      {/* floating bolt */}
+      {/* ---------- Floor shadow ---------- */}
+      <motion.div
+        aria-hidden
+        className="absolute bottom-4 left-1/2 h-16 w-48 -translate-x-1/2 rounded-full bg-txt-primary/5 blur-2xl sm:h-20 sm:w-64"
+        style={{
+          scaleX: shadowScaleX,
+          scaleY: shadowScaleY,
+          opacity: shadowOpacity,
+        }}
+      />
+
+      {/* ---------- Floating bolt ---------- */}
       <motion.div
         className="relative"
         style={{ rotateX, rotateY, transformStyle: "preserve-3d" }}
-        animate={{ y: [0, -14, 0] }}
-        transition={{ duration: 6, repeat: Infinity, ease: "easeInOut" }}
+        animate={{ y: [0, -12, 0], rotateZ: [0, 2, -2, 0] }}
+        transition={{
+          y: { duration: 5, repeat: Infinity, ease: "easeInOut" },
+          rotateZ: { duration: 8, repeat: Infinity, ease: "easeInOut" },
+        }}
       >
-        <div style={{ transform: "translateZ(60px)" }} className="drop-shadow-[0_20px_60px_rgba(0,0,0,0.6)]">
+        <div
+          style={{ transform: "translateZ(80px)" }}
+          className="drop-shadow-[0_24px_64px_rgba(0,0,0,0.7)]"
+        >
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src="/logo-white.png"
             alt="NexusLLM"
-            className="hidden h-48 w-48 select-none object-contain sm:h-60 sm:w-60 dark:block"
+            className="hidden h-44 w-44 select-none object-contain sm:h-56 sm:w-56 lg:h-64 lg:w-64 dark:block"
             draggable={false}
           />
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src="/logo-black.png"
             alt="NexusLLM"
-            className="block h-48 w-48 select-none object-contain sm:h-60 sm:w-60 dark:hidden"
+            className="block h-44 w-44 select-none object-contain sm:h-56 sm:w-56 lg:h-64 lg:w-64 dark:hidden"
             draggable={false}
           />
         </div>
       </motion.div>
 
-      {/* depth sparks */}
-      {[...Array(6)].map((_, i) => {
-        const angle = (i / 6) * Math.PI * 2;
-        const radius = 150;
+      {/* ---------- Depth sparks ---------- */}
+      {[...Array(8)].map((_, i) => {
+        const angle = (i / 8) * Math.PI * 2;
+        const radius = 170;
         return (
           <motion.span
             key={i}
-            className="absolute h-1.5 w-1.5 rounded-full bg-txt-primary/60"
+            className="absolute h-1.5 w-1.5 rounded-full bg-txt-primary/50"
             style={{
               left: `calc(50% + ${Math.cos(angle) * radius}px)`,
               top: `calc(50% + ${Math.sin(angle) * radius}px)`,
+              transform: "translateZ(20px)",
             }}
-            animate={{ opacity: [0.2, 1, 0.2], scale: [1, 1.6, 1] }}
-            transition={{ duration: 2.4 + (i % 3) * 0.6, repeat: Infinity, delay: i * 0.2 }}
+            animate={{ opacity: [0.15, 0.9, 0.15], scale: [0.8, 1.6, 0.8] }}
+            transition={{
+              duration: 2.8 + (i % 3) * 0.7,
+              repeat: Infinity,
+              delay: i * 0.25,
+            }}
           />
         );
       })}
