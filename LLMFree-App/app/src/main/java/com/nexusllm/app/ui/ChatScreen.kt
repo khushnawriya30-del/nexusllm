@@ -31,7 +31,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Stop
@@ -65,6 +67,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -73,6 +77,8 @@ import com.nexusllm.app.data.Conversation
 import com.nexusllm.app.data.Message
 import com.nexusllm.app.data.ModelEntry
 import com.nexusllm.app.ui.components.LightningMark
+import com.nexusllm.app.ui.components.MarkdownMessage
+import com.nexusllm.app.ui.components.RecordingWave
 import com.nexusllm.app.ui.components.TypingDots
 import android.Manifest
 import android.content.pm.PackageManager
@@ -116,6 +122,7 @@ fun ChatScreen(
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     var showModelPicker by remember { mutableStateOf(false) }
+    var showVoice by remember { mutableStateOf(false) }
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -198,6 +205,7 @@ fun ChatScreen(
                     onAddImage = onAddImage,
                     onRemoveImage = onRemoveImage,
                     onTranscribe = onTranscribe,
+                    onOpenVoice = { showVoice = true },
                     onSend = onSend,
                     onStop = onStop,
                 )
@@ -212,6 +220,15 @@ fun ChatScreen(
             sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
             onPick = { onSelectModel(it); showModelPicker = false },
             onDismiss = { showModelPicker = false },
+        )
+    }
+
+    if (showVoice) {
+        VoiceMode(
+            state = state,
+            onTranscribe = onTranscribe,
+            onSend = onSend,
+            onClose = { showVoice = false },
         )
     }
 }
@@ -293,7 +310,22 @@ private fun MessageBubble(m: Message, streaming: Boolean) {
                 if (m.content.isBlank() && streaming) {
                     TypingDots(cs.onSurfaceVariant)
                 } else {
-                    Text(m.content, color = cs.onBackground, fontSize = 15.sp)
+                    MarkdownMessage(m.content, cs.onBackground)
+                    if (m.content.isNotBlank()) {
+                        Spacer(Modifier.height(6.dp))
+                        val clipboard = LocalClipboardManager.current
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable { clipboard.setText(AnnotatedString(m.content)) }
+                                .padding(horizontal = 6.dp, vertical = 4.dp),
+                        ) {
+                            Icon(Icons.Filled.ContentCopy, "Copy", tint = cs.onSurfaceVariant, modifier = Modifier.size(14.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Copy", color = cs.onSurfaceVariant, fontSize = 12.sp)
+                        }
+                    }
                 }
             }
         }
@@ -373,6 +405,7 @@ private fun Composer(
     onAddImage: (String) -> Unit,
     onRemoveImage: (Int) -> Unit,
     onTranscribe: (ByteArray, (String) -> Unit) -> Unit,
+    onOpenVoice: () -> Unit,
     onSend: (String) -> Unit,
     onStop: () -> Unit,
 ) {
@@ -498,6 +531,18 @@ private fun Composer(
             )
             Spacer(Modifier.width(8.dp))
 
+            // Voice (talking) agent — converse hands-free
+            Box(
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(CircleShape)
+                    .clickable(enabled = enabled) { onOpenVoice() },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Filled.GraphicEq, "Voice mode", tint = cs.onSurfaceVariant)
+            }
+            Spacer(Modifier.width(4.dp))
+
             val canSend = enabled && (text.isNotBlank() || pendingImages.isNotEmpty())
             if (isStreaming) {
                 Box(
@@ -518,11 +563,11 @@ private fun Composer(
                         .clickable(enabled = enabled) { toggleMic() },
                     contentAlignment = Alignment.Center,
                 ) {
-                    Icon(
-                        Icons.Filled.Mic,
-                        if (recording) "Stop recording" else "Voice",
-                        tint = if (recording) cs.onPrimary else cs.onSurfaceVariant,
-                    )
+                    if (recording) {
+                        RecordingWave(color = cs.onPrimary, bars = 4, minDp = 5, maxDp = 18)
+                    } else {
+                        Icon(Icons.Filled.Mic, "Voice", tint = cs.onSurfaceVariant)
+                    }
                 }
             }
         }

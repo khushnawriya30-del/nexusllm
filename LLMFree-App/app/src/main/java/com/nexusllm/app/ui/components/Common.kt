@@ -1,5 +1,6 @@
 package com.nexusllm.app.ui.components
 
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -7,13 +8,21 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -61,6 +70,44 @@ fun TypingDots(color: Color) {
                 drawCircle(color = color, alpha = a, center = Offset(size.width / 2, size.height / 2))
             }
             Spacer(Modifier.width(4.dp))
+        }
+    }
+}
+
+/** Animated audio bars — shown while the mic is actively recording so it's
+ *  obvious the app is listening (heights bounce like a live level meter). */
+@Composable
+fun RecordingWave(
+    color: Color,
+    modifier: Modifier = Modifier,
+    bars: Int = 5,
+    minDp: Int = 6,
+    maxDp: Int = 22,
+) {
+    val t = rememberInfiniteTransition(label = "wave")
+    Row(
+        modifier = modifier,
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center,
+    ) {
+        repeat(bars) { i ->
+            val h by t.animateFloat(
+                initialValue = 0.25f,
+                targetValue = 1f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(360 + i * 90, easing = FastOutSlowInEasing),
+                    repeatMode = RepeatMode.Reverse,
+                ),
+                label = "bar$i",
+            )
+            Box(
+                modifier = Modifier
+                    .padding(horizontal = 2.dp)
+                    .width(4.dp)
+                    .height((minDp + (maxDp - minDp) * h).dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(color),
+            )
         }
     }
 }
