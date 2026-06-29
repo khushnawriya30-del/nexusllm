@@ -188,6 +188,10 @@ app.add_middleware(AccessLogMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[o for o in _CONFIG.app.cors_allowed_origins if o and o.strip()],
+    # Allow any Vercel deployment (preview + production, incl. custom-named
+    # projects like nexusllm.vercel.app) so the browser playground can stream
+    # from the backend cross-origin without per-URL config.
+    allow_origin_regex=r"https://([a-z0-9-]+\.)*vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
