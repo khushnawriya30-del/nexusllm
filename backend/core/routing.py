@@ -120,15 +120,21 @@ class RoutingEngine:
         api_keys (used by unit tests).
         """
         if self._keystore is not None:
-            entries = await self._keystore.enabled_keys(provider.id, user_id)
-            keys = [(i, e.id, e.api_key) for i, e in enumerate(entries)]
-            # Custom providers keep their key in the config row (not in
-            # provider_keys). Only the workspace that created the custom
-            # provider may route to it — otherwise it's invisible to others.
+            # Custom providers store their key in the keystore (per workspace,
+            # Firestore-backed) — NOT in provider_keys. Read it LIVE here so
+            # routing never depends on the static config snapshot loaded at
+            # startup (which can be stale/empty), and only the owning workspace
+            # can route to it.
             if "custom" in (getattr(provider, "tags", None) or []):
                 customs = await self._keystore.list_custom_providers(user_id)
-                if not any(c.id == provider.id for c in customs):
-                    return []
+                cp = next((c for c in customs if c.id == provider.id), None)
+                if cp is None:
+                    return []  # not this workspace's custom provider
+                if cp.api_key:
+                    return [(0, "custom0", cp.api_key)]
+                return [(0, "keyless", "")]  # custom provider with no key
+            entries = await self._keystore.enabled_keys(provider.id, user_id)
+            keys = [(i, e.id, e.api_key) for i, e in enumerate(entries)]
         else:
             keys = [(i, str(i), k) for i, k in enumerate(provider.api_keys)]
         # Fall back to config-level keys (custom providers carry their key here,
