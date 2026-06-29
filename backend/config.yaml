@@ -245,30 +245,6 @@ providers:
     tags: ["free", "gateway"]
     rate_limits: {}
 
-  # --- No API key required ---------------------------------------------------
-  - id: "ovh"
-    name: "OVHcloud AI Endpoints"
-    base_url: "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1"
-    api_keys: ["${OVH_AI_KEY}"]   # optional: free tier needs no key
-    requires_key: false
-    priority: 15
-    enabled: true
-    category: "free"
-    tags: ["free", "no-key"]
-    rate_limits:
-      requests_per_minute: 12
-
-  - id: "pollinations"
-    name: "Pollinations AI"
-    base_url: "https://text.pollinations.ai/openai/v1"
-    api_keys: []
-    requires_key: false
-    priority: 16
-    enabled: true
-    category: "free"
-    tags: ["free", "no-key"]
-    rate_limits: {}
-
   - id: "llm7"
     name: "LLM7"
     base_url: "https://api.llm7.io/v1"
