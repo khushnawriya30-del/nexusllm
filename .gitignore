@@ -19,3 +19,7 @@ npm-debug.log*
 .DS_Store
 .idea/
 .vscode/
+
+# Standalone 3D landing site projects (live in their own folders / own repo)
+/emergent-site/
+/NexusLLM-3D-Website/
