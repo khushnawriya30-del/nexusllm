@@ -88,8 +88,10 @@ class FirestoreKeyStore:
 
     async def init_db(self) -> None:
         # Schemaless — just verify connectivity so startup can fall back to
-        # SQLite if Firestore is misconfigured.
-        await self._db.collection("workspaces").document("__ping__").get()
+        # SQLite if Firestore is misconfigured. Use a limit(1) query (no
+        # reserved doc ids like "__ping__", which Firestore rejects).
+        async for _ in self._db.collection("workspaces").limit(1).stream():
+            break
 
     async def seed_from_config(
         self, providers, user_id: str = DEFAULT_WORKSPACE
