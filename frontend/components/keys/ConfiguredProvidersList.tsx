@@ -64,6 +64,24 @@ function ProviderGroup({ group }: { group: ProviderKeyGroup }) {
     setEditing(true);
   };
 
+  const removeProvider = async () => {
+    if (
+      !confirm(
+        `Remove "${group.name}"? It will disappear from the list, /v1/models, and routing. ` +
+          `Re-add a key later to bring it back.`,
+      )
+    )
+      return;
+    setBusy(true);
+    try {
+      await api.removeProvider(group.provider_id);
+      await refresh();
+      await qc.invalidateQueries({ queryKey: ["providers"] });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const saveEdit = async () => {
     const models = modelsText
       .split("\n")
@@ -126,6 +144,16 @@ function ProviderGroup({ group }: { group: ProviderKeyGroup }) {
           {group.is_custom && !editing && (
             <button onClick={startEdit} className="hover:text-txt-primary" title="Edit endpoint">
               Edit
+            </button>
+          )}
+          {!group.is_custom && (
+            <button
+              onClick={removeProvider}
+              disabled={busy}
+              className="hover:text-red-400 disabled:opacity-50"
+              title="Remove this provider completely"
+            >
+              Remove
             </button>
           )}
           <span>
@@ -227,6 +255,7 @@ function KeyRow({
 }) {
   const [editing, setEditing] = useState(false);
   const [label, setLabel] = useState(entry.label);
+  const [newKey, setNewKey] = useState("");
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState(entry.status);
   const [latency, setLatency] = useState(entry.latency_ms);
@@ -234,8 +263,12 @@ function KeyRow({
   const saveLabel = async () => {
     setBusy(true);
     try {
-      await api.editKeyLabel(entry.id, label);
+      await api.editKey(entry.id, {
+        label,
+        ...(newKey.trim() ? { api_key: newKey.trim() } : {}),
+      });
       setEditing(false);
+      setNewKey("");
       onChange();
     } finally {
       setBusy(false);
@@ -284,14 +317,23 @@ function KeyRow({
       <span className="font-mono text-xs text-txt-secondary">{entry.masked}</span>
 
       {editing ? (
-        <input
-          value={label}
-          onChange={(e) => setLabel(e.target.value)}
-          autoFocus
-          onKeyDown={(e) => e.key === "Enter" && saveLabel()}
-          placeholder="label"
-          className="w-40 rounded-lg border border-white/[0.1] bg-bg-primary px-2 py-1 text-xs outline-none focus:border-accent"
-        />
+        <div className="flex flex-1 flex-wrap items-center gap-2">
+          <input
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            autoFocus
+            placeholder="label"
+            className="w-32 rounded-lg border border-white/[0.1] bg-bg-primary px-2 py-1 text-xs outline-none focus:border-accent"
+          />
+          <input
+            value={newKey}
+            onChange={(e) => setNewKey(e.target.value)}
+            type="password"
+            onKeyDown={(e) => e.key === "Enter" && saveLabel()}
+            placeholder="new API key (blank = keep)"
+            className="w-56 rounded-lg border border-white/[0.1] bg-bg-primary px-2 py-1 font-mono text-xs outline-none focus:border-accent"
+          />
+        </div>
       ) : (
         <span className="text-xs text-txt-tertiary">
           {entry.label || (status ?? "unchecked")}
@@ -314,6 +356,7 @@ function KeyRow({
               onClick={() => {
                 setEditing(false);
                 setLabel(entry.label);
+                setNewKey("");
               }}
               className="hover:text-txt-primary"
             >

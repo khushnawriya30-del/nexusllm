@@ -30,7 +30,8 @@ class AddKeyBody(BaseModel):
 
 
 class EditLabelBody(BaseModel):
-    label: str
+    label: str | None = None
+    api_key: str | None = None
 
 
 class ToggleBody(BaseModel):
@@ -221,11 +222,14 @@ async def list_keys(request: Request) -> dict:
     store = request.app.state.keystore
     cfg = request.app.state.config
 
+    hidden = await store.hidden_providers()
     groups = []
     # Built-in providers (custom ones are listed separately below).
     for p in cfg.providers:
         if "custom" in p.tags:
             continue
+        if p.id in hidden:
+            continue  # fully removed by the user
         keys = await store.list_keys(p.id)
         # Show a group if it has keys, OR if it's a keyless provider (so the
         # user can see it's active without any setup).
@@ -300,17 +304,24 @@ async def add_key(body: AddKeyBody, request: Request) -> dict:
     if provider and not provider.enabled:
         provider.enabled = True
         await store.set_provider_enabled(body.provider_id, True)
+    # Adding a key brings a previously-removed provider back.
+    await store.set_provider_hidden(body.provider_id, False)
     await _rediscover(request)
     return {"id": entry.id, "status": "added"}
 
 
 @router.patch("/keys/{key_id}")
-async def edit_label(key_id: str, body: EditLabelBody, request: Request) -> dict:
-    # STRICT: only the label is editable, never the key itself.
+async def edit_key(key_id: str, body: EditLabelBody, request: Request) -> dict:
+    """Edit a stored key — its label and/or the secret value itself."""
     store = request.app.state.keystore
-    ok = await store.update_label(key_id, body.label)
+    api_key = body.api_key.strip() if body.api_key is not None else None
+    if body.api_key is not None and not api_key:
+        raise HTTPException(400, "api_key must not be empty")
+    ok = await store.update_key(key_id, api_key=api_key, label=body.label)
     if not ok:
         raise HTTPException(404, "key not found")
+    if api_key is not None:
+        await _rediscover(request)
     return {"status": "updated"}
 
 
@@ -383,6 +394,26 @@ async def set_provider_enabled(provider_id: str, body: ToggleBody, request: Requ
     if body.enabled:
         await _rediscover(request)
     return {"status": "ok", "enabled": body.enabled}
+
+
+@router.delete("/providers/{provider_id}")
+async def remove_provider(provider_id: str, request: Request) -> dict:
+    """Fully remove a built-in provider from the Keys list + routing.
+
+    Built-ins come from config, so we can't delete them from disk — instead we
+    disable + hide them (persisted), so they vanish from the UI, /v1/models and
+    routing. Re-adding a key for the provider brings it back."""
+    store = request.app.state.keystore
+    cfg = request.app.state.config
+    provider = cfg.get_provider(provider_id)
+    if provider is None:
+        raise HTTPException(404, f"unknown provider {provider_id!r}")
+    if "custom" in (provider.tags or []):
+        raise HTTPException(400, "use DELETE /custom-providers/{id} for custom providers")
+    provider.enabled = False
+    await store.set_provider_enabled(provider_id, False)
+    await store.set_provider_hidden(provider_id, True)
+    return {"status": "removed"}
 
 
 # ---------------------------------------------------------------------------

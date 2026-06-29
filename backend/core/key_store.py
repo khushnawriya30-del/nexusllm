@@ -110,6 +110,9 @@ class KeyStore:
             await db.execute(
                 "CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)"
             )
+            await db.execute(
+                "CREATE TABLE IF NOT EXISTS hidden_providers (provider_id TEXT PRIMARY KEY)"
+            )
             # Migration: persist custom-provider health so the status survives
             # page navigations (no need to re-click Check every time).
             async with db.execute("PRAGMA table_info(custom_providers)") as cur:
@@ -238,6 +241,28 @@ class KeyStore:
             await db.commit()
             return cur.rowcount > 0
 
+    async def update_key(
+        self, key_id: str, api_key: str | None = None, label: str | None = None
+    ) -> bool:
+        """Update a key's secret value and/or its label (whichever is given)."""
+        sets: list[str] = []
+        params: list = []
+        if api_key is not None:
+            sets.append("api_key=?")
+            params.append(api_key)
+        if label is not None:
+            sets.append("label=?")
+            params.append(label)
+        if not sets:
+            return False
+        params.append(key_id)
+        async with aiosqlite.connect(self._db_path) as db:
+            cur = await db.execute(
+                f"UPDATE provider_keys SET {', '.join(sets)} WHERE id=?", params
+            )
+            await db.commit()
+            return cur.rowcount > 0
+
     async def set_key_enabled(self, key_id: str, enabled: bool) -> bool:
         async with aiosqlite.connect(self._db_path) as db:
             cur = await db.execute(
@@ -329,6 +354,27 @@ class KeyStore:
             ) as cur:
                 rows = await cur.fetchall()
         return {r[0]: bool(r[1]) for r in rows}
+
+    # -- hidden (fully removed) providers ----------------------------------
+
+    async def set_provider_hidden(self, provider_id: str, hidden: bool) -> None:
+        async with aiosqlite.connect(self._db_path) as db:
+            if hidden:
+                await db.execute(
+                    "INSERT OR IGNORE INTO hidden_providers (provider_id) VALUES (?)",
+                    (provider_id,),
+                )
+            else:
+                await db.execute(
+                    "DELETE FROM hidden_providers WHERE provider_id=?", (provider_id,)
+                )
+            await db.commit()
+
+    async def hidden_providers(self) -> set[str]:
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute("SELECT provider_id FROM hidden_providers") as cur:
+                rows = await cur.fetchall()
+        return {r[0] for r in rows}
 
     # -- per-model enable/disable ------------------------------------------
 

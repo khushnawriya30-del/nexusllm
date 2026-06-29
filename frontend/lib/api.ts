@@ -115,6 +115,8 @@ export const api = {
     adminMutate("/admin/keys", "POST", { provider_id, api_key, label }),
   editKeyLabel: (id: string, label: string) =>
     adminMutate(`/admin/keys/${id}`, "PATCH", { label }),
+  editKey: (id: string, data: { label?: string; api_key?: string }) =>
+    adminMutate(`/admin/keys/${id}`, "PATCH", data),
   toggleKey: (id: string, enabled: boolean) =>
     adminMutate(`/admin/keys/${id}/enabled`, "PATCH", { enabled }),
   removeKey: (id: string) => adminMutate(`/admin/keys/${id}`, "DELETE"),
@@ -127,6 +129,8 @@ export const api = {
 
   setProviderEnabled: (id: string, enabled: boolean) =>
     adminMutate(`/admin/providers/${id}/enabled`, "PATCH", { enabled }),
+  removeProvider: (id: string) =>
+    adminMutate(`/admin/providers/${id}`, "DELETE"),
 
   setModelEnabled: (provider_id: string, model_id: string, enabled: boolean) =>
     adminMutate("/admin/models/enabled", "PATCH", { provider_id, model_id, enabled }),
