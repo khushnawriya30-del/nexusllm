@@ -2,7 +2,7 @@
 
 import { useCallback, useRef, useState } from "react";
 import { CHAT_ENDPOINT } from "@/lib/api";
-import { authHeader } from "@/lib/auth";
+import { firebaseEnabled, getFreshIdToken } from "@/lib/firebase";
 import type { ChatMessage, ChatParams, FallbackInfo, FusionState } from "@/lib/types";
 import { type ThinkingIntensity } from "@/lib/thinking-models";
 
@@ -103,9 +103,17 @@ export function useChat(): UseChatResult {
           requestBody.thinking_intensity = opts.thinkingIntensity;
         }
 
+        // Attach the signed-in user's fresh token so chat routes through THEIR
+        // workspace (their keys/models). Logged out / Firebase off -> no header.
+        const authHeaders: Record<string, string> = {};
+        if (firebaseEnabled) {
+          const token = await getFreshIdToken();
+          if (token) authHeaders.Authorization = `Bearer ${token}`;
+        }
+
         const res = await fetch(CHAT_ENDPOINT, {
           method: "POST",
-          headers: { "Content-Type": "application/json", ...authHeader() },
+          headers: { "Content-Type": "application/json", ...authHeaders },
           body: JSON.stringify(requestBody),
           signal: controller.signal,
         });

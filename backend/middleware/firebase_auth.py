@@ -213,6 +213,17 @@ async def resolve_proxy_workspace(request: Request) -> str:
             if claims:
                 return str(claims["sub"])
 
+        # A unified key that no longer resolves (rotated / revoked / leaked &
+        # regenerated) must be firmly DEAD — never silently fall through to the
+        # open default workspace. This makes regeneration a real security
+        # control: the instant you regenerate, the old key 401s everywhere.
+        if token.startswith("nexus-"):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="This API key is invalid or has been regenerated.",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
     expected = config.app.proxy_api_key
     if not expected:
         # Proxy auth disabled: open access maps to the default workspace.

@@ -27,7 +27,7 @@ function buildQuery(params: Record<string, unknown>): string {
   return s ? `?${s}` : "";
 }
 
-import { getIdToken } from "./auth";
+import { firebaseEnabled, getFreshIdToken } from "./firebase";
 
 const ADMIN_KEY_STORAGE = "nexusllm.adminKey";
 
@@ -43,18 +43,22 @@ export function setAdminKey(key: string): void {
   window.localStorage.setItem(ADMIN_KEY_STORAGE, key);
 }
 
-function adminHeaders(): HeadersInit {
-  // Prefer the signed-in user's Firebase token (their isolated workspace);
-  // fall back to the admin key for the operator / single-admin deployments.
-  const token = getIdToken();
-  if (token) return { Authorization: `Bearer ${token}` };
+async function adminHeaders(): Promise<HeadersInit> {
+  // When Firebase is enabled, EVERY admin call MUST carry the signed-in user's
+  // fresh token so it always targets THEIR workspace (regenerate, key edits,
+  // etc.). Never silently fall back to the admin key — that would hit the
+  // shared "default" workspace and rotate the wrong key.
+  if (firebaseEnabled) {
+    const token = await getFreshIdToken();
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  }
   const key = getAdminKey();
   return key ? { Authorization: `Bearer ${key}` } : {};
 }
 
 async function getJSON<T>(path: string, withAdmin = false): Promise<T> {
   const res = await fetch(`/api${path}`, {
-    headers: withAdmin ? adminHeaders() : undefined,
+    headers: withAdmin ? await adminHeaders() : undefined,
     cache: "no-store",
   });
   if (!res.ok) {
@@ -96,7 +100,7 @@ export const api = {
   async resetCircuit(providerId: string): Promise<void> {
     const res = await fetch(`/api/admin/providers/${providerId}/reset`, {
       method: "POST",
-      headers: adminHeaders(),
+      headers: await adminHeaders(),
     });
     if (!res.ok) throw new Error(`reset failed: ${res.status}`);
   },
@@ -104,7 +108,7 @@ export const api = {
   async reload(): Promise<void> {
     const res = await fetch(`/api/admin/reload`, {
       method: "POST",
-      headers: adminHeaders(),
+      headers: await adminHeaders(),
     });
     if (!res.ok) throw new Error(`reload failed: ${res.status}`);
   },
@@ -187,7 +191,7 @@ async function adminMutate<T = unknown>(
   const res = await fetch(`/api${path}`, {
     method,
     headers: {
-      ...adminHeaders(),
+      ...(await adminHeaders()),
       ...(body ? { "Content-Type": "application/json" } : {}),
     },
     body: body ? JSON.stringify(body) : undefined,

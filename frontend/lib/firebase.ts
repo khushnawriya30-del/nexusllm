@@ -34,3 +34,22 @@ export function getFirebaseAuth(): Auth | null {
 }
 
 export const googleProvider = new GoogleAuthProvider();
+
+/** A guaranteed-fresh ID token for the signed-in user, or null when logged out
+ *  / Firebase disabled. Always pulled live from Firebase (which caches + auto-
+ *  refreshes), so requests never go out with a stale or missing token. */
+export async function getFreshIdToken(): Promise<string | null> {
+  const auth = getFirebaseAuth();
+  if (!auth || !auth.currentUser) return null;
+  try {
+    return await auth.currentUser.getIdToken();
+  } catch {
+    return null;
+  }
+}
+
+/** True when Firebase is on AND a user is currently signed in. */
+export function hasFirebaseUser(): boolean {
+  const auth = getFirebaseAuth();
+  return !!(auth && auth.currentUser);
+}
