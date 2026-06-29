@@ -62,6 +62,8 @@ async def health(request: Request) -> dict:
         "models_known": len(request.app.state.registry.all_models()),
         "keystore": getattr(request.app.state, "keystore_backend", "sqlite"),
         "persistent_keys": getattr(request.app.state, "keystore_backend", "sqlite") == "firestore",
+        "service_account_detected": getattr(request.app.state, "sa_detected", False),
+        "keystore_error": getattr(request.app.state, "keystore_error", None),
     }
 
 

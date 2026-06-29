@@ -75,9 +75,11 @@ async def lifespan(app: FastAPI):
     # local SQLite (ephemeral on Render's free tier).
     keystore = None
     keystore_backend = "sqlite"
+    keystore_error = None
     from core.firestore_key_store import load_service_account
 
     sa = load_service_account()
+    sa_detected = bool(sa)
     if sa:
         try:
             from core.firestore_key_store import FirestoreKeyStore
@@ -88,6 +90,7 @@ async def lifespan(app: FastAPI):
             keystore_backend = "firestore"
             logger.info("Using Firestore (persistent) key store.")
         except Exception as exc:
+            keystore_error = f"{type(exc).__name__}: {exc}"[:300]
             logger.error(
                 "Firestore key store init failed (%s); falling back to SQLite.",
                 exc,
@@ -161,6 +164,8 @@ async def lifespan(app: FastAPI):
     app.state.request_log = request_log
     app.state.keystore = keystore
     app.state.keystore_backend = keystore_backend
+    app.state.keystore_error = keystore_error
+    app.state.sa_detected = sa_detected
     app.state.engine = engine
     app.state.started_at = time.time()
 
