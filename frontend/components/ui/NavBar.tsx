@@ -17,13 +17,13 @@ export function NavBar() {
   const pathname = usePathname();
   const { enabled, user, logout } = useAuth();
   return (
-    <header className="sticky top-0 z-40 border-b border-border bg-bg-primary/80 backdrop-blur">
+    <header className="glass-nav sticky top-0 z-40 border-b border-border">
       <div className="mx-auto flex h-14 w-full max-w-6xl items-center justify-between px-6 lg:px-10">
         <div className="flex items-center gap-8">
           <Link href="/" className="flex items-center gap-2">
             <span className="relative flex h-2 w-2">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500 opacity-70" />
-              <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-purple-500 opacity-70" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-purple-500" />
             </span>
             {/* eslint-disable @next/next/no-img-element */}
             {/* Black logo for light mode, white logo for dark mode. */}
@@ -38,7 +38,9 @@ export function NavBar() {
               className="hidden h-9 w-9 object-contain dark:block"
             />
             {/* eslint-enable @next/next/no-img-element */}
-            <span className="text-xl font-bold tracking-tight">NexusLLM</span>
+            <span className="text-xl font-bold tracking-tight">
+              Nexus<span className="text-purple-400">LLM</span>
+            </span>
           </Link>
           <nav className="flex items-center gap-6">
             {TABS.map((tab) => {

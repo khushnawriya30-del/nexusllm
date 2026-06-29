@@ -352,3 +352,39 @@ select optgroup {
   opacity: 0.03;
   background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
+
+/* ---------------------------------------------------------------------------
+   App-wide cosmic backdrop — gives EVERY page (chat, keys, analytics, models,
+   auth) the same atmosphere as the 3D landing, so the whole product feels like
+   one cohesive site. Rendered by <AmbientBackdrop /> in the root layout.
+--------------------------------------------------------------------------- */
+.nx-ambient {
+  background-color: var(--bg-primary);
+  background-image:
+    radial-gradient(55rem 55rem at 10% -8%, rgba(167, 139, 250, 0.16), transparent 60%),
+    radial-gradient(50rem 50rem at 100% 8%, rgba(96, 165, 250, 0.14), transparent 58%),
+    radial-gradient(48rem 48rem at 50% 112%, rgba(52, 211, 153, 0.12), transparent 58%);
+}
+:root.light .nx-ambient {
+  background-image:
+    radial-gradient(55rem 55rem at 10% -8%, rgba(167, 139, 250, 0.18), transparent 60%),
+    radial-gradient(50rem 50rem at 100% 8%, rgba(96, 165, 250, 0.16), transparent 58%),
+    radial-gradient(48rem 48rem at 50% 112%, rgba(52, 211, 153, 0.12), transparent 58%);
+}
+.nx-ambient::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  opacity: 0.025;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* Glass header used by the in-app NavBar so it matches the landing nav. */
+.glass-nav {
+  background: rgba(10, 10, 15, 0.55);
+  backdrop-filter: blur(18px) saturate(160%);
+  -webkit-backdrop-filter: blur(18px) saturate(160%);
+}
+:root.light .glass-nav {
+  background: rgba(255, 255, 255, 0.6);
+}

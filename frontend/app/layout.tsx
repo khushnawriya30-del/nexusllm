@@ -4,6 +4,7 @@ import "@/styles/globals.css";
 import "./premium-ui.css";
 import { Providers } from "./providers";
 import { SiteChrome } from "@/components/ui/SiteChrome";
+import { AmbientBackdrop } from "@/components/ui/AmbientBackdrop";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 const mono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-mono" });
@@ -23,8 +24,9 @@ export default function RootLayout({
     <html lang="en" className="dark">
       <body className={`${inter.variable} ${mono.variable} font-sans antialiased`}>
         <Providers>
+          <AmbientBackdrop />
           <SiteChrome />
-          <main className="min-h-[calc(100vh-3.5rem)]">{children}</main>
+          <main className="relative z-10 min-h-[calc(100vh-3.5rem)]">{children}</main>
         </Providers>
       </body>
     </html>
