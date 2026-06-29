@@ -60,6 +60,8 @@ async def health(request: Request) -> dict:
         "providers_total": len(config.providers),
         "alias_groups": len(config.model_aliases),
         "models_known": len(request.app.state.registry.all_models()),
+        "keystore": getattr(request.app.state, "keystore_backend", "sqlite"),
+        "persistent_keys": getattr(request.app.state, "keystore_backend", "sqlite") == "firestore",
     }
 
 

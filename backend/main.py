@@ -74,6 +74,7 @@ async def lifespan(app: FastAPI):
     # (per-account keys then survive restarts/redeploys forever); otherwise use
     # local SQLite (ephemeral on Render's free tier).
     keystore = None
+    keystore_backend = "sqlite"
     from core.firestore_key_store import load_service_account
 
     sa = load_service_account()
@@ -84,6 +85,7 @@ async def lifespan(app: FastAPI):
             fs = FirestoreKeyStore(sa, _CONFIG.app.firebase_project_id or None)
             await fs.init_db()
             keystore = fs
+            keystore_backend = "firestore"
             logger.info("Using Firestore (persistent) key store.")
         except Exception as exc:
             logger.error(
@@ -158,6 +160,7 @@ async def lifespan(app: FastAPI):
     app.state.metrics = metrics
     app.state.request_log = request_log
     app.state.keystore = keystore
+    app.state.keystore_backend = keystore_backend
     app.state.engine = engine
     app.state.started_at = time.time()
 
