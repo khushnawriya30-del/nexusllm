@@ -13,7 +13,7 @@ nexusllm:
   port: 8080
   admin_api_key: "${NEXUS_ADMIN_KEY}"
   proxy_api_key: "${NEXUS_PROXY_KEY}"      # optional: leave unset to disable proxy auth
-  firebase_project_id: "${FIREBASE_PROJECT_ID}"   # enables Google sign-in / per-account workspaces
+  firebase_project_id: "nexusllm-35fe0"   # Google sign-in / per-account workspaces (public project id)
   log_level: "INFO"
   model_refresh_interval_minutes: 15
   enable_request_logging: true
