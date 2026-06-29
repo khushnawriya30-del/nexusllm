@@ -432,7 +432,8 @@ class KeyStore:
             return cur.rowcount > 0
 
     async def record_health(
-        self, key_id: str, status: str, latency_ms: float | None
+        self, key_id: str, status: str, latency_ms: float | None,
+        user_id: str | None = None,
     ) -> None:
         async with aiosqlite.connect(self._db_path) as db:
             await db.execute(
@@ -672,7 +673,8 @@ class KeyStore:
         )
 
     async def record_custom_health(
-        self, cp_id: str, status: str, latency_ms: float | None
+        self, cp_id: str, status: str, latency_ms: float | None,
+        user_id: str | None = None,
     ) -> None:
         async with aiosqlite.connect(self._db_path) as db:
             await db.execute(

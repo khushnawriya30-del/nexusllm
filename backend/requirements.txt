@@ -9,3 +9,4 @@ structlog>=24.1
 watchdog>=4.0
 tenacity>=8.3
 PyJWT[crypto]>=2.8
+google-cloud-firestore>=2.16

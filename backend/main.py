@@ -70,8 +70,30 @@ async def lifespan(app: FastAPI):
     breakers = CircuitBreakerRegistry(_breaker_config(_CONFIG))
 
     # Runtime key store: source of truth for keys at request time.
-    keystore = KeyStore(f"{_CONFIG.app.data_dir}/nexusllm.db")
-    await keystore.init_db()
+    # Prefer PERSISTENT Firestore when a Firebase service account is configured
+    # (per-account keys then survive restarts/redeploys forever); otherwise use
+    # local SQLite (ephemeral on Render's free tier).
+    keystore = None
+    from core.firestore_key_store import load_service_account
+
+    sa = load_service_account()
+    if sa:
+        try:
+            from core.firestore_key_store import FirestoreKeyStore
+
+            fs = FirestoreKeyStore(sa, _CONFIG.app.firebase_project_id or None)
+            await fs.init_db()
+            keystore = fs
+            logger.info("Using Firestore (persistent) key store.")
+        except Exception as exc:
+            logger.error(
+                "Firestore key store init failed (%s); falling back to SQLite.",
+                exc,
+            )
+            keystore = None
+    if keystore is None:
+        keystore = KeyStore(f"{_CONFIG.app.data_dir}/nexusllm.db")
+        await keystore.init_db()
     await keystore.seed_from_config(_CONFIG.providers)
     # Apply persisted provider enable/disable overrides onto the live config.
     for pid, enabled in (await keystore.provider_overrides()).items():

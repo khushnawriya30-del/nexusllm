@@ -362,7 +362,7 @@ async def check_key(key_id: str, request: Request, wid: str = Depends(require_wo
     if not base_url:
         raise HTTPException(400, "provider base_url unknown")
     status, latency = await _check_key(base_url, entry.api_key)
-    await store.record_health(key_id, status, latency)
+    await store.record_health(key_id, status, latency, wid)
     return {"id": key_id, "status": status, "latency_ms": latency}
 
 
@@ -375,12 +375,12 @@ async def check_all(request: Request, wid: str = Depends(require_workspace)) -> 
         if not base_url:
             continue
         status, latency = await _check_key(base_url, entry.api_key)
-        await store.record_health(entry.id, status, latency)
+        await store.record_health(entry.id, status, latency, wid)
         results.append({"id": entry.id, "status": status, "latency_ms": latency})
     # Also check this workspace's custom providers.
     for cp in await store.list_custom_providers(wid):
         status, latency = await _check_key(cp.base_url, cp.api_key)
-        await store.record_custom_health(cp.id, status, latency)
+        await store.record_custom_health(cp.id, status, latency, wid)
         results.append({"id": cp.id, "status": status, "latency_ms": latency})
     return {"checked": len(results), "results": results}
 
@@ -511,5 +511,5 @@ async def check_custom_provider(cp_id: str, request: Request, wid: str = Depends
     if cp is None:
         raise HTTPException(404, "custom provider not found")
     status, latency = await _check_key(cp.base_url, cp.api_key)
-    await store.record_custom_health(cp_id, status, latency)
+    await store.record_custom_health(cp_id, status, latency, wid)
     return {"id": cp_id, "status": status, "latency_ms": latency}
