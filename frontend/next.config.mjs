@@ -14,6 +14,13 @@ const nextConfig = {
         source: "/api/:path*",
         destination: `${backend}/:path*`,
       },
+      // Proxy the OpenAI-compatible API too, so the displayed base URL
+      // (https://<frontend-host>/v1) actually works as a drop-in base_url for
+      // external agents/SDKs — not just the in-app playground.
+      {
+        source: "/v1/:path*",
+        destination: `${backend}/v1/:path*`,
+      },
     ];
   },
 };
