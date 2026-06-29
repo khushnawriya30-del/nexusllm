@@ -14,6 +14,7 @@ import {
   signOut,
   type User,
 } from "firebase/auth";
+import { useQueryClient } from "@tanstack/react-query";
 import { firebaseEnabled, getFirebaseAuth } from "@/lib/firebase";
 import { setIdToken } from "@/lib/auth";
 
@@ -43,6 +44,7 @@ export function useAuth(): AuthState {
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(firebaseEnabled);
+  const queryClient = useQueryClient();
 
   // Track auth state + keep the cached ID token fresh.
   useEffect(() => {
@@ -55,9 +57,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(u);
       setIdToken(u ? await u.getIdToken() : null);
       setLoading(false);
+      // Auth just resolved/changed (page refresh, login, logout, token
+      // refresh) — refetch every query so data is scoped to the right
+      // workspace. Without this, queries that fired before the token was
+      // ready show the wrong (default) workspace and the user's keys look
+      // like they "disappeared" on refresh.
+      queryClient.invalidateQueries();
     });
     return () => unsub();
-  }, []);
+  }, [queryClient]);
 
   // Refresh the token well before its ~1h expiry so long sessions don't 401.
   useEffect(() => {
