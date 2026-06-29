@@ -185,6 +185,32 @@ app = FastAPI(
 )
 
 app.add_middleware(AccessLogMiddleware)
+
+
+# Tolerate OpenAI base-URL convention differences from external agents.
+# Some clients are configured with the base URL INCLUDING `/v1` and then also
+# append `/v1` themselves (-> `/v1/v1/models`); others omit `/v1` entirely
+# (-> `/models`). Normalise both to the canonical `/v1/...` so the gateway
+# "just works" no matter how the agent builds the URL.
+_OPENAI_LEAF_PATHS = {
+    "/models", "/chat/completions", "/completions", "/embeddings",
+}
+
+
+@app.middleware("http")
+async def _normalize_openai_path(request: Request, call_next):
+    path = request.scope.get("path", "")
+    new = path
+    while "/v1/v1/" in new:
+        new = new.replace("/v1/v1/", "/v1/", 1)
+    if new in _OPENAI_LEAF_PATHS:
+        new = "/v1" + new
+    if new != path:
+        request.scope["path"] = new
+        request.scope["raw_path"] = new.encode("utf-8")
+    return await call_next(request)
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[o for o in _CONFIG.app.cors_allowed_origins if o and o.strip()],
