@@ -30,10 +30,17 @@ async def list_models(
 
     # Providers usable by THIS workspace: its own key-store key, or a keyless
     # built-in provider. Custom providers are visible only to the workspace
-    # that created them.
+    # that created them. Per-workspace removed (hidden) / disabled providers
+    # are excluded so the playground matches the user's Keys page.
     own_custom_ids = {c.id for c in await keystore.list_custom_providers(user_id)}
+    hidden = await keystore.hidden_providers(user_id)
+    overrides = await keystore.provider_overrides(user_id)
     keyed_providers: set[str] = set()
     for p in config.enabled_providers():
+        if p.id in hidden:
+            continue
+        if overrides.get(p.id) is False:
+            continue
         if "custom" in (p.tags or []):
             if p.id in own_custom_ids:
                 keyed_providers.add(p.id)

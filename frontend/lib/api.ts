@@ -67,7 +67,7 @@ async function getJSON<T>(path: string, withAdmin = false): Promise<T> {
 export const api = {
   health: () => getJSON<{ status: string }>("/health"),
   providers: () => getJSON<ProvidersResponse>("/admin/providers", true),
-  models: () => getJSON<ModelsResponse>("/v1/models"),
+  models: () => getJSON<ModelsResponse>("/v1/models", true),
   metrics: () => getJSON<MetricsResponse>("/admin/metrics", true),
   logs: (limit = 100, search = "") =>
     getJSON<{ logs: RequestLogEntry[] }>(
