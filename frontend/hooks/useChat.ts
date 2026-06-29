@@ -2,6 +2,7 @@
 
 import { useCallback, useRef, useState } from "react";
 import { CHAT_ENDPOINT } from "@/lib/api";
+import { authHeader } from "@/lib/auth";
 import type { ChatMessage, ChatParams, FallbackInfo, FusionState } from "@/lib/types";
 import { type ThinkingIntensity } from "@/lib/thinking-models";
 
@@ -104,7 +105,7 @@ export function useChat(): UseChatResult {
 
         const res = await fetch(CHAT_ENDPOINT, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...authHeader() },
           body: JSON.stringify(requestBody),
           signal: controller.signal,
         });

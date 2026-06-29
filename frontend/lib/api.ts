@@ -27,6 +27,8 @@ function buildQuery(params: Record<string, unknown>): string {
   return s ? `?${s}` : "";
 }
 
+import { getIdToken } from "./auth";
+
 const ADMIN_KEY_STORAGE = "nexusllm.adminKey";
 
 export function getAdminKey(): string {
@@ -42,6 +44,10 @@ export function setAdminKey(key: string): void {
 }
 
 function adminHeaders(): HeadersInit {
+  // Prefer the signed-in user's Firebase token (their isolated workspace);
+  // fall back to the admin key for the operator / single-admin deployments.
+  const token = getIdToken();
+  if (token) return { Authorization: `Bearer ${token}` };
   const key = getAdminKey();
   return key ? { Authorization: `Bearer ${key}` } : {};
 }

@@ -7,32 +7,38 @@ import time
 from fastapi import APIRouter, Depends, Request
 
 from core.registry import ModelRegistry
-from middleware.auth import require_proxy
+from middleware.firebase_auth import resolve_proxy_workspace
 
 router = APIRouter(prefix="/v1", tags=["models"])
 
 
-@router.get("/models", dependencies=[Depends(require_proxy)])
-async def list_models(request: Request) -> dict:
-    """List models, restricted to providers that currently have enabled keys.
+@router.get("/models")
+async def list_models(
+    request: Request,
+    user_id: str = Depends(resolve_proxy_workspace),
+) -> dict:
+    """List models, restricted to providers the caller's workspace can use.
 
-    With no keys configured this returns an empty list — models only appear
-    after a key is added and the system discovers that provider's catalogue.
+    A workspace only sees models for providers it has its own enabled key for
+    (or keyless providers). With no keys this returns an empty list — models
+    only appear after the workspace adds a key and that provider is discovered.
     """
     config = request.app.state.config
     registry: ModelRegistry = request.app.state.registry
     keystore = request.app.state.keystore
     created = int(getattr(request.app.state, "started_at", time.time()))
 
-    # Providers usable right now: a key-store key, a config key (custom
-    # providers carry theirs there), or no key needed at all.
+    # Providers usable by THIS workspace: its own key-store key, or a keyless
+    # built-in provider. Custom providers are visible only to the workspace
+    # that created them.
+    own_custom_ids = {c.id for c in await keystore.list_custom_providers(user_id)}
     keyed_providers: set[str] = set()
     for p in config.enabled_providers():
-        if (
-            await keystore.enabled_keys(p.id)
-            or p.api_keys
-            or not p.requires_key
-        ):
+        if "custom" in (p.tags or []):
+            if p.id in own_custom_ids:
+                keyed_providers.add(p.id)
+            continue
+        if await keystore.enabled_keys(p.id, user_id) or not p.requires_key:
             keyed_providers.add(p.id)
 
     # Active, key-backed concrete models only (no stale/mock entries).

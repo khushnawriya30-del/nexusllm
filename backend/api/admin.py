@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from core.circuit_breaker import CircuitBreakerRegistry
 from core.config import ConfigError, load_config
 from core.registry import ModelRegistry
-from middleware.auth import require_admin
+from middleware.firebase_auth import require_identity as require_admin
 
 logger = logging.getLogger("nexusllm.api.admin")
 

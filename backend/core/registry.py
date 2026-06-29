@@ -773,12 +773,15 @@ class ModelRegistry:
         # OVH uses its public catalogue (baked anon token), per the FreeLLM repo.
         if provider.id == "ovh":
             return await self._discover_ovh(provider)
-        # Prefer a runtime key from the key store; fall back to config keys.
+        # Prefer a runtime key from the key store (any workspace — model
+        # catalogues are provider-global, so any account's key can list them);
+        # fall back to config keys. Per-request ROUTING still uses only the
+        # requesting workspace's own keys, so isolation is preserved.
         key: str | None = None
         if self._keystore is not None:
-            entries = await self._keystore.enabled_keys(provider.id)
-            if entries:
-                key = entries[0].api_key
+            entry = await self._keystore.any_enabled_key(provider.id)
+            if entry:
+                key = entry.api_key
         if key is None and provider.has_usable_keys:
             key = provider.api_keys[0]
         if not key:

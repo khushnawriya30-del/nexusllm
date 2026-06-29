@@ -6,15 +6,19 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 
 from core.routing import RoutingEngine
-from middleware.auth import require_proxy
+from middleware.firebase_auth import resolve_proxy_workspace
 from models.requests import EmbeddingsRequest
 from models.responses import error_body
 
 router = APIRouter(prefix="/v1", tags=["embeddings"])
 
 
-@router.post("/embeddings", dependencies=[Depends(require_proxy)])
-async def embeddings(req: EmbeddingsRequest, request: Request):
+@router.post("/embeddings")
+async def embeddings(
+    req: EmbeddingsRequest,
+    request: Request,
+    user_id: str = Depends(resolve_proxy_workspace),
+):
     """Route an embeddings request through the fallback engine."""
     engine: RoutingEngine = request.app.state.engine
     request_id = getattr(request.state, "request_id", None)
@@ -24,6 +28,7 @@ async def embeddings(req: EmbeddingsRequest, request: Request):
         req.upstream_payload,
         path="/embeddings",
         request_id=request_id,
+        user_id=user_id,
     )
 
     store = getattr(request.app.state, "request_log", None)

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ThemeToggle } from "./ThemeToggle";
+import { useAuth } from "@/components/auth/AuthProvider";
 
 const TABS = [
   { href: "/models", label: "Models" },
@@ -14,6 +15,7 @@ const TABS = [
 
 export function NavBar() {
   const pathname = usePathname();
+  const { enabled, user, logout } = useAuth();
   return (
     <header className="sticky top-0 z-40 border-b border-border bg-bg-primary/80 backdrop-blur">
       <div className="mx-auto flex h-14 w-full max-w-6xl items-center justify-between px-6 lg:px-10">
@@ -88,6 +90,30 @@ export function NavBar() {
             Download App
           </a>
           <ThemeToggle />
+          {enabled && user && (
+            <div className="flex items-center gap-2">
+              <span
+                className="hidden max-w-[12rem] truncate text-sm text-txt-secondary md:inline"
+                title={user.email || undefined}
+              >
+                {user.email}
+              </span>
+              <button
+                onClick={() => logout()}
+                className="rounded-full border border-border bg-bg-secondary px-3 py-1.5 text-sm font-medium text-txt-primary transition-colors hover:bg-bg-tertiary"
+              >
+                Sign out
+              </button>
+            </div>
+          )}
+          {enabled && !user && (
+            <Link
+              href="/login"
+              className="rounded-full border border-border bg-bg-secondary px-3 py-1.5 text-sm font-medium text-txt-primary transition-colors hover:bg-bg-tertiary"
+            >
+              Sign in
+            </Link>
+          )}
         </div>
       </div>
     </header>

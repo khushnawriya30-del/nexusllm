@@ -9,7 +9,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from core import analytics
-from middleware.auth import require_admin
+from middleware.firebase_auth import require_identity as require_admin
 
 router = APIRouter(prefix="/admin/analytics", tags=["analytics"], dependencies=[Depends(require_admin)])
 

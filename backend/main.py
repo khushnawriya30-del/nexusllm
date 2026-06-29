@@ -96,7 +96,7 @@ async def lifespan(app: FastAPI):
     from core.config import make_custom_provider_config
 
     try:
-        customs = await keystore.list_custom_providers()
+        customs = await keystore.all_custom_providers()
         base_prio = max((p.priority for p in _CONFIG.providers), default=0)
         for i, cp in enumerate(customs):
             if not cp.enabled:

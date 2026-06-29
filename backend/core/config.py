@@ -213,6 +213,9 @@ class AppConfig(BaseModel):
     port: int = Field(default=8080, ge=1, le=65535)
     admin_api_key: str = ""
     proxy_api_key: str = ""
+    # Firebase project id — enables Google sign-in / multi-tenant workspaces.
+    # When empty, Firebase auth is off and the app stays single-admin.
+    firebase_project_id: str = ""
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     model_refresh_interval_minutes: int = Field(default=15, ge=1)
     enable_request_logging: bool = True

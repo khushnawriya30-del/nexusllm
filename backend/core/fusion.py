@@ -157,6 +157,7 @@ async def stream_fusion(
     request_id: str | None = None,
     panel_size: int = DEFAULT_PANEL_SIZE,
     log_cb: "Callable[[RouteResult], Awaitable[None]] | None" = None,
+    user_id: str = "default",
 ) -> AsyncIterator[bytes]:
     """Stream a full Fusion run as SSE bytes.
 
@@ -211,6 +212,7 @@ async def stream_fusion(
             gen, err = await engine.stream_one(
                 pid, mid, payload,
                 request_id=f"{request_id}:fusion:{mid}" if request_id else None,
+                user_id=user_id,
             )
             if gen is None:
                 await queue.put({"fusion": {"type": "model_error", "slot": idx,
@@ -293,7 +295,7 @@ async def stream_fusion(
         "max_tokens": min(req.max_tokens or 4096, 4096),
     })
 
-    result, gen = await engine.stream_chat(judge_req, request_id=request_id)
+    result, gen = await engine.stream_chat(judge_req, request_id=request_id, user_id=user_id)
     if gen is None or not result.success:
         # Judge failed (e.g. every provider rate-limited): gracefully fall back
         # to the strongest panel answer so the user still gets a real result.
@@ -340,6 +342,7 @@ async def build_fusion_request(
     *,
     request_id: str | None = None,
     panel_size: int = DEFAULT_PANEL_SIZE,
+    user_id: str = "default",
 ) -> "tuple[ChatCompletionRequest | None, list[dict]]":
     """Run the panel (with per-slot fallback) and return a judge request.
 
@@ -382,6 +385,7 @@ async def build_fusion_request(
                 result = await engine.route(
                     mid, builder, path="/chat/completions",
                     request_id=f"{request_id}:panel:{mid}" if request_id else None,
+                    user_id=user_id,
                 )
                 content = _content_of(result.body) if result.success else None
             except Exception as exc:  # pragma: no cover - defensive

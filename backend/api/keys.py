@@ -1,4 +1,10 @@
-"""Key management API: unified key, provider keys, custom providers, health."""
+"""Key management API: unified key, provider keys, custom providers, health.
+
+Every endpoint is scoped to the caller's *workspace* (``wid``): a Firebase uid
+for signed-in Google accounts, or ``"default"`` for the admin key. Each
+workspace sees and edits only its own keys, custom providers and unified key —
+fully isolated from every other account.
+"""
 
 from __future__ import annotations
 
@@ -9,13 +15,14 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
+from core.key_store import DEFAULT_WORKSPACE
 from core.providers_catalog import get_key_url
-from middleware.auth import require_admin
+from middleware.firebase_auth import require_workspace
 from utils.masking import mask_api_key
 
 logger = logging.getLogger("nexusllm.api.keys")
 
-router = APIRouter(prefix="/admin", tags=["keys"], dependencies=[Depends(require_admin)])
+router = APIRouter(prefix="/admin", tags=["keys"])
 
 
 # ---------------------------------------------------------------------------
@@ -140,7 +147,7 @@ async def _unsync_custom(request: Request, cp_id: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Unified key
+# Unified key (per workspace)
 # ---------------------------------------------------------------------------
 
 
@@ -149,9 +156,7 @@ def _public_base_url(request: Request) -> str:
 
     Derived from the incoming request so it reflects the real host the app is
     reachable at — localhost in dev, the Render URL once deployed, or a custom
-    domain if self-hosted. Respects reverse-proxy headers (X-Forwarded-*),
-    which Render and most PaaS platforms set. Falls back to the configured
-    host/port only when no Host header is present.
+    domain if self-hosted. Respects reverse-proxy headers (X-Forwarded-*).
     """
     forwarded_proto = request.headers.get("x-forwarded-proto")
     forwarded_host = request.headers.get("x-forwarded-host")
@@ -166,9 +171,9 @@ def _public_base_url(request: Request) -> str:
 
 
 @router.get("/unified-key")
-async def unified_key(request: Request) -> dict:
+async def unified_key(request: Request, wid: str = Depends(require_workspace)) -> dict:
     store = request.app.state.keystore
-    key = await store.get_unified_key()
+    key = await store.get_unified_key(wid)
     return {
         "key": key,
         "base_url": _public_base_url(request),
@@ -182,9 +187,9 @@ async def unified_key(request: Request) -> dict:
 
 
 @router.post("/unified-key/regenerate")
-async def regenerate_unified_key(request: Request) -> dict:
+async def regenerate_unified_key(request: Request, wid: str = Depends(require_workspace)) -> dict:
     store = request.app.state.keystore
-    key = await store.regenerate_unified_key()
+    key = await store.regenerate_unified_key(wid)
     return {"key": key}
 
 
@@ -194,7 +199,7 @@ async def regenerate_unified_key(request: Request) -> dict:
 
 
 @router.get("/supported-providers")
-async def supported_providers(request: Request) -> dict:
+async def supported_providers(request: Request, wid: str = Depends(require_workspace)) -> dict:
     cfg = request.app.state.config
     return {
         "providers": [
@@ -213,33 +218,35 @@ async def supported_providers(request: Request) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Configured keys (grouped)
+# Configured keys (grouped) — scoped to the caller's workspace
 # ---------------------------------------------------------------------------
 
 
 @router.get("/keys")
-async def list_keys(request: Request) -> dict:
+async def list_keys(request: Request, wid: str = Depends(require_workspace)) -> dict:
     store = request.app.state.keystore
     cfg = request.app.state.config
 
-    hidden = await store.hidden_providers()
+    hidden = await store.hidden_providers(wid)
+    overrides = await store.provider_overrides(wid)
     groups = []
     # Built-in providers (custom ones are listed separately below).
     for p in cfg.providers:
         if "custom" in p.tags:
             continue
         if p.id in hidden:
-            continue  # fully removed by the user
-        keys = await store.list_keys(p.id)
+            continue  # fully removed by this workspace
+        keys = await store.list_keys(p.id, wid)
         # Show a group if it has keys, OR if it's a keyless provider (so the
         # user can see it's active without any setup).
         if not keys and p.requires_key:
             continue
+        enabled = overrides.get(p.id, p.enabled)
         groups.append(
             {
                 "provider_id": p.id,
                 "name": p.name,
-                "enabled": p.enabled,
+                "enabled": enabled,
                 "is_custom": False,
                 "requires_key": p.requires_key,
                 "key_free": p.key_free,
@@ -260,8 +267,8 @@ async def list_keys(request: Request) -> dict:
             }
         )
 
-    # Custom providers.
-    for cp in await store.list_custom_providers():
+    # Custom providers owned by this workspace.
+    for cp in await store.list_custom_providers(wid):
         groups.append(
             {
                 "provider_id": cp.id,
@@ -290,7 +297,7 @@ async def list_keys(request: Request) -> dict:
 
 
 @router.post("/keys")
-async def add_key(body: AddKeyBody, request: Request) -> dict:
+async def add_key(body: AddKeyBody, request: Request, wid: str = Depends(require_workspace)) -> dict:
     store = request.app.state.keystore
     cfg = request.app.state.config
     if cfg.get_provider(body.provider_id) is None:
@@ -298,26 +305,27 @@ async def add_key(body: AddKeyBody, request: Request) -> dict:
     if not body.api_key.strip():
         raise HTTPException(400, "api_key must not be empty")
 
-    entry = await store.add_key(body.provider_id, body.api_key.strip(), body.label)
-    # Ensure the provider is enabled when a key is added.
-    provider = cfg.get_provider(body.provider_id)
-    if provider and not provider.enabled:
-        provider.enabled = True
-        await store.set_provider_enabled(body.provider_id, True)
+    entry = await store.add_key(body.provider_id, body.api_key.strip(), body.label, wid)
+    # Ensure the provider is enabled for this workspace when a key is added.
+    await store.set_provider_enabled(body.provider_id, True, wid)
+    if wid == DEFAULT_WORKSPACE:
+        provider = cfg.get_provider(body.provider_id)
+        if provider and not provider.enabled:
+            provider.enabled = True
     # Adding a key brings a previously-removed provider back.
-    await store.set_provider_hidden(body.provider_id, False)
+    await store.set_provider_hidden(body.provider_id, False, wid)
     await _rediscover(request)
     return {"id": entry.id, "status": "added"}
 
 
 @router.patch("/keys/{key_id}")
-async def edit_key(key_id: str, body: EditLabelBody, request: Request) -> dict:
+async def edit_key(key_id: str, body: EditLabelBody, request: Request, wid: str = Depends(require_workspace)) -> dict:
     """Edit a stored key — its label and/or the secret value itself."""
     store = request.app.state.keystore
     api_key = body.api_key.strip() if body.api_key is not None else None
     if body.api_key is not None and not api_key:
         raise HTTPException(400, "api_key must not be empty")
-    ok = await store.update_key(key_id, api_key=api_key, label=body.label)
+    ok = await store.update_key(key_id, api_key=api_key, label=body.label, user_id=wid)
     if not ok:
         raise HTTPException(404, "key not found")
     if api_key is not None:
@@ -326,18 +334,18 @@ async def edit_key(key_id: str, body: EditLabelBody, request: Request) -> dict:
 
 
 @router.patch("/keys/{key_id}/enabled")
-async def toggle_key(key_id: str, body: ToggleBody, request: Request) -> dict:
+async def toggle_key(key_id: str, body: ToggleBody, request: Request, wid: str = Depends(require_workspace)) -> dict:
     store = request.app.state.keystore
-    ok = await store.set_key_enabled(key_id, body.enabled)
+    ok = await store.set_key_enabled(key_id, body.enabled, wid)
     if not ok:
         raise HTTPException(404, "key not found")
     return {"status": "ok"}
 
 
 @router.delete("/keys/{key_id}")
-async def remove_key(key_id: str, request: Request) -> dict:
+async def remove_key(key_id: str, request: Request, wid: str = Depends(require_workspace)) -> dict:
     store = request.app.state.keystore
-    ok = await store.delete_key(key_id)
+    ok = await store.delete_key(key_id, wid)
     if not ok:
         raise HTTPException(404, "key not found")
     await _rediscover(request)
@@ -345,9 +353,9 @@ async def remove_key(key_id: str, request: Request) -> dict:
 
 
 @router.post("/keys/{key_id}/check")
-async def check_key(key_id: str, request: Request) -> dict:
+async def check_key(key_id: str, request: Request, wid: str = Depends(require_workspace)) -> dict:
     store = request.app.state.keystore
-    entry = await store.get_key(key_id)
+    entry = await store.get_key(key_id, wid)
     if entry is None:
         raise HTTPException(404, "key not found")
     base_url = _base_url_for(request, entry.provider_id)
@@ -359,18 +367,18 @@ async def check_key(key_id: str, request: Request) -> dict:
 
 
 @router.post("/keys/check-all")
-async def check_all(request: Request) -> dict:
+async def check_all(request: Request, wid: str = Depends(require_workspace)) -> dict:
     store = request.app.state.keystore
     results = []
-    for entry in await store.list_keys():
+    for entry in await store.list_keys(user_id=wid):
         base_url = _base_url_for(request, entry.provider_id)
         if not base_url:
             continue
         status, latency = await _check_key(base_url, entry.api_key)
         await store.record_health(entry.id, status, latency)
         results.append({"id": entry.id, "status": status, "latency_ms": latency})
-    # Also check custom providers.
-    for cp in await store.list_custom_providers():
+    # Also check this workspace's custom providers.
+    for cp in await store.list_custom_providers(wid):
         status, latency = await _check_key(cp.base_url, cp.api_key)
         await store.record_custom_health(cp.id, status, latency)
         results.append({"id": cp.id, "status": status, "latency_ms": latency})
@@ -378,31 +386,34 @@ async def check_all(request: Request) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Provider enable/disable
+# Provider enable/disable (per workspace)
 # ---------------------------------------------------------------------------
 
 
 @router.patch("/providers/{provider_id}/enabled")
-async def set_provider_enabled(provider_id: str, body: ToggleBody, request: Request) -> dict:
+async def set_provider_enabled(provider_id: str, body: ToggleBody, request: Request, wid: str = Depends(require_workspace)) -> dict:
     store = request.app.state.keystore
     cfg = request.app.state.config
     provider = cfg.get_provider(provider_id)
     if provider is None:
         raise HTTPException(404, f"unknown provider {provider_id!r}")
-    provider.enabled = body.enabled
-    await store.set_provider_enabled(provider_id, body.enabled)
+    await store.set_provider_enabled(provider_id, body.enabled, wid)
+    # Only the admin/default workspace flips the shared live config so one
+    # account can't toggle a provider for everyone.
+    if wid == DEFAULT_WORKSPACE:
+        provider.enabled = body.enabled
     if body.enabled:
         await _rediscover(request)
     return {"status": "ok", "enabled": body.enabled}
 
 
 @router.delete("/providers/{provider_id}")
-async def remove_provider(provider_id: str, request: Request) -> dict:
-    """Fully remove a built-in provider from the Keys list + routing.
+async def remove_provider(provider_id: str, request: Request, wid: str = Depends(require_workspace)) -> dict:
+    """Fully remove a built-in provider from this workspace's Keys list.
 
     Built-ins come from config, so we can't delete them from disk — instead we
-    disable + hide them (persisted), so they vanish from the UI, /v1/models and
-    routing. Re-adding a key for the provider brings it back."""
+    disable + hide them for this workspace (persisted), so they vanish from the
+    UI and this workspace's /v1/models + routing. Re-adding a key un-hides."""
     store = request.app.state.keystore
     cfg = request.app.state.config
     provider = cfg.get_provider(provider_id)
@@ -410,19 +421,20 @@ async def remove_provider(provider_id: str, request: Request) -> dict:
         raise HTTPException(404, f"unknown provider {provider_id!r}")
     if "custom" in (provider.tags or []):
         raise HTTPException(400, "use DELETE /custom-providers/{id} for custom providers")
-    provider.enabled = False
-    await store.set_provider_enabled(provider_id, False)
-    await store.set_provider_hidden(provider_id, True)
+    await store.set_provider_enabled(provider_id, False, wid)
+    await store.set_provider_hidden(provider_id, True, wid)
+    if wid == DEFAULT_WORKSPACE:
+        provider.enabled = False
     return {"status": "removed"}
 
 
 # ---------------------------------------------------------------------------
-# Custom providers
+# Custom providers (per workspace)
 # ---------------------------------------------------------------------------
 
 
 @router.post("/custom-providers")
-async def add_custom_provider(body: CustomProviderBody, request: Request) -> dict:
+async def add_custom_provider(body: CustomProviderBody, request: Request, wid: str = Depends(require_workspace)) -> dict:
     store = request.app.state.keystore
     if not body.base_url.strip():
         raise HTTPException(400, "base_url is required")
@@ -430,7 +442,7 @@ async def add_custom_provider(body: CustomProviderBody, request: Request) -> dic
     if not models:
         raise HTTPException(400, "at least one model is required")
     cp = await store.add_custom_provider(
-        body.name.strip(), body.base_url.strip(), models, body.api_key.strip()
+        body.name.strip(), body.base_url.strip(), models, body.api_key.strip(), wid
     )
     await _sync_custom_into_config(request, cp)
     return {"id": cp.id, "status": "added"}
@@ -438,7 +450,7 @@ async def add_custom_provider(body: CustomProviderBody, request: Request) -> dic
 
 @router.patch("/custom-providers/{cp_id}")
 async def edit_custom_provider(
-    cp_id: str, body: EditCustomProviderBody, request: Request
+    cp_id: str, body: EditCustomProviderBody, request: Request, wid: str = Depends(require_workspace)
 ) -> dict:
     """Fully edit a custom provider: name, base URL, API key, and model list."""
     store = request.app.state.keystore
@@ -454,7 +466,7 @@ async def edit_custom_provider(
     name = body.name.strip() if body.name is not None else None
 
     cp = await store.update_custom_provider(
-        cp_id, name=name, base_url=base_url, models=models, api_key=api_key
+        cp_id, name=name, base_url=base_url, models=models, api_key=api_key, user_id=wid
     )
     if cp is None:
         raise HTTPException(404, "custom provider not found")
@@ -466,13 +478,13 @@ async def edit_custom_provider(
 
 
 @router.patch("/custom-providers/{cp_id}/enabled")
-async def toggle_custom_provider(cp_id: str, body: ToggleBody, request: Request) -> dict:
+async def toggle_custom_provider(cp_id: str, body: ToggleBody, request: Request, wid: str = Depends(require_workspace)) -> dict:
     store = request.app.state.keystore
-    ok = await store.set_custom_provider_enabled(cp_id, body.enabled)
+    ok = await store.set_custom_provider_enabled(cp_id, body.enabled, wid)
     if not ok:
         raise HTTPException(404, "custom provider not found")
     cp = next(
-        (c for c in await store.list_custom_providers() if c.id == cp_id), None
+        (c for c in await store.list_custom_providers(wid) if c.id == cp_id), None
     )
     if cp is not None:
         await _sync_custom_into_config(request, cp)
@@ -480,9 +492,9 @@ async def toggle_custom_provider(cp_id: str, body: ToggleBody, request: Request)
 
 
 @router.delete("/custom-providers/{cp_id}")
-async def remove_custom_provider(cp_id: str, request: Request) -> dict:
+async def remove_custom_provider(cp_id: str, request: Request, wid: str = Depends(require_workspace)) -> dict:
     store = request.app.state.keystore
-    ok = await store.delete_custom_provider(cp_id)
+    ok = await store.delete_custom_provider(cp_id, wid)
     if not ok:
         raise HTTPException(404, "custom provider not found")
     await _unsync_custom(request, cp_id)
@@ -490,11 +502,11 @@ async def remove_custom_provider(cp_id: str, request: Request) -> dict:
 
 
 @router.post("/custom-providers/{cp_id}/check")
-async def check_custom_provider(cp_id: str, request: Request) -> dict:
+async def check_custom_provider(cp_id: str, request: Request, wid: str = Depends(require_workspace)) -> dict:
     """Health-check a custom OpenAI-compatible endpoint by pinging /models."""
     store = request.app.state.keystore
     cp = next(
-        (c for c in await store.list_custom_providers() if c.id == cp_id), None
+        (c for c in await store.list_custom_providers(wid) if c.id == cp_id), None
     )
     if cp is None:
         raise HTTPException(404, "custom provider not found")

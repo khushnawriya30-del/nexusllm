@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from core.routing import RoutingEngine
-from middleware.auth import require_proxy
+from middleware.firebase_auth import resolve_proxy_workspace
 from models.requests import ChatCompletionRequest, ChatMessage
 from models.responses import error_body
 from utils.streaming import sse_error_stream
@@ -36,8 +36,12 @@ _AUTO_IDENTITY_NOTE = (
 )
 
 
-@router.post("/chat/completions", dependencies=[Depends(require_proxy)])
-async def chat_completions(req: ChatCompletionRequest, request: Request):
+@router.post("/chat/completions")
+async def chat_completions(
+    req: ChatCompletionRequest,
+    request: Request,
+    user_id: str = Depends(resolve_proxy_workspace),
+):
     """Route a chat completion through the fallback engine."""
     engine: RoutingEngine = request.app.state.engine
     request_id = getattr(request.state, "request_id", None)
@@ -54,13 +58,13 @@ async def chat_completions(req: ChatCompletionRequest, request: Request):
 
             return StreamingResponse(
                 stream_fusion(engine, req, request_id=request_id,
-                              log_cb=_judge_log),
+                              log_cb=_judge_log, user_id=user_id),
                 media_type="text/event-stream",
             )
 
         # Non-streaming fusion: run the panel, then route the judge normally.
         judge_req, _panel = await build_fusion_request(
-            engine, req, request_id=request_id
+            engine, req, request_id=request_id, user_id=user_id
         )
         if judge_req is None:
             msg = "Fusion failed: no panel model returned an answer."
@@ -81,7 +85,7 @@ async def chat_completions(req: ChatCompletionRequest, request: Request):
         })
 
     if req.stream:
-        result, gen = await engine.stream_chat(req, request_id=request_id)
+        result, gen = await engine.stream_chat(req, request_id=request_id, user_id=user_id)
         if gen is None or not result.success:
             await _log(request, result, is_stream=True)
             return StreamingResponse(
@@ -108,7 +112,7 @@ async def chat_completions(req: ChatCompletionRequest, request: Request):
             headers=result.response_headers(),
         )
 
-    result = await engine.route_chat(req, request_id=request_id)
+    result = await engine.route_chat(req, request_id=request_id, user_id=user_id)
     await _log(request, result, is_stream=False)
 
     if result.success:

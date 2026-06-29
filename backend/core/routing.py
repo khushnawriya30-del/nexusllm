@@ -111,16 +111,24 @@ class RoutingEngine:
         # Round-robin cursor per provider.
         self._rr_cursor: dict[str, int] = {}
 
-    async def _keys_for(self, provider) -> list[tuple[int, str, str]]:
-        """Return enabled keys as (position, key_id, api_key) for a provider.
+    async def _keys_for(self, provider, user_id: str = "default") -> list[tuple[int, str, str]]:
+        """Return enabled keys as (position, key_id, api_key) for a provider,
+        scoped to the requesting workspace.
 
         Uses the runtime key store when available so keys added/removed in the
         UI take effect immediately; otherwise falls back to the static config
         api_keys (used by unit tests).
         """
         if self._keystore is not None:
-            entries = await self._keystore.enabled_keys(provider.id)
+            entries = await self._keystore.enabled_keys(provider.id, user_id)
             keys = [(i, e.id, e.api_key) for i, e in enumerate(entries)]
+            # Custom providers keep their key in the config row (not in
+            # provider_keys). Only the workspace that created the custom
+            # provider may route to it — otherwise it's invisible to others.
+            if "custom" in (getattr(provider, "tags", None) or []):
+                customs = await self._keystore.list_custom_providers(user_id)
+                if not any(c.id == provider.id for c in customs):
+                    return []
         else:
             keys = [(i, str(i), k) for i, k in enumerate(provider.api_keys)]
         # Fall back to config-level keys (custom providers carry their key here,
@@ -269,6 +277,7 @@ class RoutingEngine:
         *,
         path: str = "/chat/completions",
         request_id: str | None = None,
+        user_id: str = "default",
     ) -> RouteResult:
         """Execute a non-streaming request with the full fallback chain.
 
@@ -301,7 +310,7 @@ class RoutingEngine:
             if provider is None or not provider.enabled:
                 continue
             keys = self._rotate(
-                candidate.provider_id, await self._keys_for(provider)
+                candidate.provider_id, await self._keys_for(provider, user_id)
             )
 
             for position, key_id, api_key in keys:
@@ -443,7 +452,8 @@ class RoutingEngine:
         return self._finalize(result)
 
     async def route_chat(
-        self, req: ChatCompletionRequest, request_id: str | None = None
+        self, req: ChatCompletionRequest, request_id: str | None = None,
+        user_id: str = "default",
     ) -> RouteResult:
         """Convenience wrapper for chat completions."""
         return await self.route(
@@ -451,12 +461,14 @@ class RoutingEngine:
             req.upstream_payload,
             path="/chat/completions",
             request_id=request_id,
+            user_id=user_id,
         )
 
     # -- streaming ----------------------------------------------------------
 
     async def stream_chat(
-        self, req: ChatCompletionRequest, request_id: str | None = None
+        self, req: ChatCompletionRequest, request_id: str | None = None,
+        user_id: str = "default",
     ) -> tuple[RouteResult, AsyncIterator[bytes] | None]:
         """Resolve a streaming chat request to the first usable provider.
 
@@ -477,7 +489,7 @@ class RoutingEngine:
             if provider is None or not provider.enabled:
                 continue
             keys = self._rotate(
-                candidate.provider_id, await self._keys_for(provider)
+                candidate.provider_id, await self._keys_for(provider, user_id)
             )
             if not keys:
                 last_error = (
@@ -558,6 +570,7 @@ class RoutingEngine:
         payload: dict[str, Any],
         *,
         request_id: str | None = None,
+        user_id: str = "default",
     ) -> "tuple[AsyncIterator[bytes] | None, str | None]":
         """Open a streaming SSE connection to ONE specific (provider, model).
 
@@ -569,7 +582,7 @@ class RoutingEngine:
         provider = self._config.get_provider(provider_id)
         if provider is None or not provider.enabled:
             return None, f"{provider_id} is unavailable"
-        keys = self._rotate(provider_id, await self._keys_for(provider))
+        keys = self._rotate(provider_id, await self._keys_for(provider, user_id))
         if not keys:
             return None, f"no API key for {provider_id}"
 

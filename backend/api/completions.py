@@ -6,15 +6,19 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 
 from core.routing import RoutingEngine
-from middleware.auth import require_proxy
+from middleware.firebase_auth import resolve_proxy_workspace
 from models.requests import CompletionsRequest
 from models.responses import error_body
 
 router = APIRouter(prefix="/v1", tags=["completions"])
 
 
-@router.post("/completions", dependencies=[Depends(require_proxy)])
-async def completions(req: CompletionsRequest, request: Request):
+@router.post("/completions")
+async def completions(
+    req: CompletionsRequest,
+    request: Request,
+    user_id: str = Depends(resolve_proxy_workspace),
+):
     """Route a legacy completion request through the fallback engine."""
     engine: RoutingEngine = request.app.state.engine
     request_id = getattr(request.state, "request_id", None)
@@ -24,6 +28,7 @@ async def completions(req: CompletionsRequest, request: Request):
         req.upstream_payload,
         path="/completions",
         request_id=request_id,
+        user_id=user_id,
     )
 
     store = getattr(request.app.state, "request_log", None)
