@@ -156,6 +156,10 @@ export const api = {
     }),
   toggleCustomProvider: (id: string, enabled: boolean) =>
     adminMutate(`/admin/custom-providers/${id}/enabled`, "PATCH", { enabled }),
+  editCustomProvider: (
+    id: string,
+    data: { base_url?: string; models?: string[]; name?: string; api_key?: string },
+  ) => adminMutate(`/admin/custom-providers/${id}`, "PATCH", data),
   checkCustomProvider: (id: string) =>
     adminMutate<{ status: string; latency_ms: number | null }>(
       `/admin/custom-providers/${id}/check`,

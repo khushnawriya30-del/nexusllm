@@ -428,6 +428,41 @@ class KeyStore:
             await db.commit()
             return cur.rowcount > 0
 
+    async def update_custom_provider(
+        self,
+        cp_id: str,
+        name: str | None = None,
+        base_url: str | None = None,
+        models: list[str] | None = None,
+        api_key: str | None = None,
+    ) -> "CustomProvider | None":
+        """Edit a custom provider in place. Any field left as None is kept;
+        an empty-string api_key means 'no key'. Returns the updated provider."""
+        existing = next(
+            (c for c in await self.list_custom_providers() if c.id == cp_id), None
+        )
+        if existing is None:
+            return None
+        new_name = name if name is not None else existing.name
+        new_base = base_url.rstrip("/") if base_url else existing.base_url
+        new_models = models if models is not None else existing.models
+        new_key = api_key if api_key is not None else existing.api_key
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute(
+                """
+                UPDATE custom_providers
+                SET name=?, base_url=?, models_json=?, api_key=?
+                WHERE id=?
+                """,
+                (new_name, new_base, json.dumps(new_models), new_key, cp_id),
+            )
+            await db.commit()
+        existing.name = new_name
+        existing.base_url = new_base
+        existing.models = new_models
+        existing.api_key = new_key
+        return existing
+
     async def delete_custom_provider(self, cp_id: str) -> bool:
         async with aiosqlite.connect(self._db_path) as db:
             cur = await db.execute(

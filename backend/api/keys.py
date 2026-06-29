@@ -44,6 +44,14 @@ class CustomProviderBody(BaseModel):
     api_key: str = ""
 
 
+class EditCustomProviderBody(BaseModel):
+    """All fields optional — only the provided ones are changed."""
+    base_url: str | None = None
+    models: list[str] | None = None
+    name: str | None = None
+    api_key: str | None = None
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -395,6 +403,35 @@ async def add_custom_provider(body: CustomProviderBody, request: Request) -> dic
     )
     await _sync_custom_into_config(request, cp)
     return {"id": cp.id, "status": "added"}
+
+
+@router.patch("/custom-providers/{cp_id}")
+async def edit_custom_provider(
+    cp_id: str, body: EditCustomProviderBody, request: Request
+) -> dict:
+    """Fully edit a custom provider: name, base URL, API key, and model list."""
+    store = request.app.state.keystore
+    models = None
+    if body.models is not None:
+        models = [m.strip() for m in body.models if m and m.strip()]
+        if not models:
+            raise HTTPException(400, "at least one model is required")
+    base_url = body.base_url.strip() if body.base_url else None
+    if body.base_url is not None and not base_url:
+        raise HTTPException(400, "base_url must not be empty")
+    api_key = body.api_key.strip() if body.api_key is not None else None
+    name = body.name.strip() if body.name is not None else None
+
+    cp = await store.update_custom_provider(
+        cp_id, name=name, base_url=base_url, models=models, api_key=api_key
+    )
+    if cp is None:
+        raise HTTPException(404, "custom provider not found")
+    # Rebuild the live config + models so base-URL / model / key changes apply.
+    await _unsync_custom(request, cp_id)
+    await _sync_custom_into_config(request, cp)
+    await _rediscover(request)
+    return {"status": "updated"}
 
 
 @router.patch("/custom-providers/{cp_id}/enabled")

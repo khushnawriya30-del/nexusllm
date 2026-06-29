@@ -42,11 +42,49 @@ function ProviderGroup({ group }: { group: ProviderKeyGroup }) {
   const qc = useQueryClient();
   const refresh = () => qc.invalidateQueries({ queryKey: ["key-groups"] });
 
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState(group.name);
+  const [baseUrl, setBaseUrl] = useState(group.base_url ?? "");
+  const [apiKey, setApiKey] = useState("");
+  const [modelsText, setModelsText] = useState((group.models ?? []).join("\n"));
+  const [busy, setBusy] = useState(false);
+
   const toggleProvider = async (enabled: boolean) => {
     if (group.is_custom) await api.toggleCustomProvider(group.provider_id, enabled);
     else await api.setProviderEnabled(group.provider_id, enabled);
     await refresh();
     await qc.invalidateQueries({ queryKey: ["providers"] });
+  };
+
+  const startEdit = () => {
+    setName(group.name);
+    setBaseUrl(group.base_url ?? "");
+    setApiKey("");
+    setModelsText((group.models ?? []).join("\n"));
+    setEditing(true);
+  };
+
+  const saveEdit = async () => {
+    const models = modelsText
+      .split("\n")
+      .map((m) => m.trim())
+      .filter(Boolean);
+    if (!baseUrl.trim() || models.length === 0) return;
+    setBusy(true);
+    try {
+      await api.editCustomProvider(group.provider_id, {
+        name: name.trim() || baseUrl.trim(),
+        base_url: baseUrl.trim(),
+        models,
+        // Only overwrite the key if the user typed a new one; blank = keep.
+        ...(apiKey.trim() ? { api_key: apiKey.trim() } : {}),
+      });
+      setEditing(false);
+      await refresh();
+      await qc.invalidateQueries({ queryKey: ["providers"] });
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -84,10 +122,77 @@ function ProviderGroup({ group }: { group: ProviderKeyGroup }) {
             Get API key ↗
           </a>
         )}
-        <span className="ml-auto text-xs text-txt-tertiary">
-          {group.key_count} key{group.key_count === 1 ? "" : "s"}
+        <span className="ml-auto flex items-center gap-3 text-xs text-txt-tertiary">
+          {group.is_custom && !editing && (
+            <button onClick={startEdit} className="hover:text-txt-primary" title="Edit endpoint">
+              Edit
+            </button>
+          )}
+          <span>
+            {group.key_count} key{group.key_count === 1 ? "" : "s"}
+          </span>
         </span>
       </div>
+
+      {/* Custom provider edit panel — base URL, API key, models all editable */}
+      {group.is_custom && editing && (
+        <div className="space-y-3 border-t border-white/[0.06] bg-bg-primary/30 px-6 py-4">
+          <div>
+            <label className="mb-1 block text-xs text-txt-tertiary">Name</label>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="w-full rounded-lg border border-white/[0.1] bg-bg-primary px-3 py-2 text-sm outline-none focus:border-accent"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs text-txt-tertiary">Base URL (endpoint)</label>
+            <input
+              value={baseUrl}
+              onChange={(e) => setBaseUrl(e.target.value)}
+              placeholder="https://api.example.com/v1"
+              className="w-full rounded-lg border border-white/[0.1] bg-bg-primary px-3 py-2 font-mono text-sm outline-none focus:border-accent"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs text-txt-tertiary">
+              API key <span className="text-txt-tertiary/70">(leave blank to keep current)</span>
+            </label>
+            <input
+              type="password"
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              placeholder="sk-…"
+              className="w-full rounded-lg border border-white/[0.1] bg-bg-primary px-3 py-2 font-mono text-sm outline-none focus:border-accent"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs text-txt-tertiary">Models (one per line)</label>
+            <textarea
+              value={modelsText}
+              onChange={(e) => setModelsText(e.target.value)}
+              rows={4}
+              placeholder={"gpt-5.5\nmistral-large"}
+              className="w-full resize-y rounded-lg border border-white/[0.1] bg-bg-primary px-3 py-2 font-mono text-sm outline-none focus:border-accent"
+            />
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={saveEdit}
+              disabled={busy}
+              className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-bg-primary disabled:opacity-50"
+            >
+              {busy ? "Saving…" : "Save changes"}
+            </button>
+            <button
+              onClick={() => setEditing(false)}
+              className="text-sm text-txt-tertiary hover:text-txt-primary"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Keys */}
       <div className="space-y-px border-t border-white/[0.04] bg-bg-primary/30">
